@@ -6,6 +6,7 @@ import {
   Search, Send, Settings, ShieldCheck, Sparkles, Trophy, Users, X,
   LogOut, UserRound, CircleHelp, Flag, Check, Lock, SlidersHorizontal
 } from "lucide-react";
+import { supabase } from "./supabaseClient";
 import "./styles.css";
 
 const communities = [
@@ -35,6 +36,7 @@ const comments = [
 
 function App() {
   const [posts, setPosts] = useState(initialPosts);
+  const [session, setSession] = useState(null);
   const [active, setActive] = useState("Home");
   const [sort, setSort] = useState("Hot");
   const [query, setQuery] = useState("");
@@ -53,6 +55,20 @@ function App() {
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [suggested, setSuggested] = useState(["campus", "academics", "placements"]);
   const searchRef = useRef(null);
+
+  useEffect(() => {
+    let mounted = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (mounted) setSession(data.session);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (mounted) setSession(nextSession);
+    });
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -151,7 +167,7 @@ function App() {
           <button className={`profile-pill ${showProfile ? "active" : ""}`} onClick={() => { setShowProfile(!showProfile); setShowNotifications(false); }} aria-expanded={showProfile}><span className="avatar me">YS</span><ChevronDown size={15}/></button>
         </div>
         {showNotifications && <NotificationPanel read={notificationsRead} onRead={() => {setNotificationsRead(true); notify("Notifications marked as read")}}/>}
-        {showProfile && <ProfileMenu onNavigate={go} onInfo={setInfoModal} onLogin={() => setShowLogin(true)}/>} 
+        {showProfile && <ProfileMenu session={session} onNavigate={go} onInfo={setInfoModal} onLogin={() => setShowLogin(true)} onLogout={async () => { await supabase.auth.signOut(); setShowProfile(false); notify("Logged out"); }}/>} 
       </header>
 
       <div className="layout">
@@ -228,7 +244,16 @@ function NavItem({icon,label,active,onClick}) { return <button className={`nav-i
 
 function NotificationPanel({read,onRead}) { return <div className="notification-panel"><div className="panel-head"><strong>Notifications</strong><button onClick={onRead}>{read ? "All read" : "Mark all read"}</button></div><div className="notification"><span className="n-avatar">🔥</span><p><b>bytebender</b> replied to your campus thread.<small>12 min ago</small></p></div><div className="notification"><span className="n-avatar">🏆</span><p><b>KL Clash</b> posted a new tournament update.<small>1h ago</small></p></div><div className="notification"><span className="n-avatar">💬</span><p><b>NightOwl_21</b> mentioned you in r/campus.<small>2h ago</small></p></div></div>; }
 
-function ProfileMenu({onNavigate,onInfo,onLogin}) { return <div className="profile-menu"><div className="profile-summary"><span className="avatar me big">YS</span><div><strong>Your profile</strong><small>@you · student account</small></div></div><button onClick={() => onNavigate("Profile")}><UserRound size={16}/> Profile</button><button onClick={() => onNavigate("Saved")}><Bookmark size={16}/> Saved posts</button><button onClick={() => onInfo("settings")}><Settings size={16}/> Settings</button><div className="menu-divider"/><button onClick={onLogin}><LogOut size={16}/> Log in / switch account</button></div>; }
+function ProfileMenu({session,onNavigate,onInfo,onLogin,onLogout}) {
+  return <div className="profile-menu">
+    <div className="profile-summary"><span className="avatar me big">YS</span><div><strong>{session ? "Your account" : "Your profile"}</strong><small>{session?.user?.email || "@you · student account"}</small></div></div>
+    <button onClick={() => onNavigate("Profile")}><UserRound size={16}/> Profile</button>
+    <button onClick={() => onNavigate("Saved")}><Bookmark size={16}/> Saved posts</button>
+    <button onClick={() => onInfo("settings")}><Settings size={16}/> Settings</button>
+    <div className="menu-divider"/>
+    {session ? <button onClick={onLogout}><LogOut size={16}/> Log out</button> : <button onClick={onLogin}><LogOut size={16}/> Log in / create account</button>}
+  </div>;
+}
 
 function PostCard({post,vote,toggleSave,onComment,onShare,onMore}) {
   const community = communities.find(c => c.name === post.community) || communities[0];
@@ -257,8 +282,41 @@ function EmptyState({onCreate,title="No posts here yet"}) { return <div classNam
 
 function Composer({communities,onClose,onCreate}) { const [community,setCommunity]=useState("campus"); const [title,setTitle]=useState(""); const [body,setBody]=useState(""); const [imageAdded,setImageAdded]=useState(false); const [spoiler,setSpoiler]=useState(false); const valid=title.trim().length>3; return <div className="modal-backdrop" onMouseDown={onClose}><div className="composer" onMouseDown={e=>e.stopPropagation()}><div className="composer-head"><div><span className="eyebrow">CREATE</span><h2>Start a conversation</h2></div><button onClick={onClose}><X/></button></div><label>Community<select value={community} onChange={e=>setCommunity(e.target.value)}>{communities.map(c=><option value={c.name} key={c.name}>r/{c.name}</option>)}</select></label><label>Title<input autoFocus value={title} onChange={e=>setTitle(e.target.value)} placeholder="What's on your mind?" maxLength={140}/><small>{title.length}/140</small></label><label>Body<textarea value={body} onChange={e=>setBody(e.target.value)} placeholder="Add context, a question, a story, or just say hello..." rows="6"/></label><div className="composer-tools"><button className={imageAdded?"tool-active":""} onClick={()=>setImageAdded(!imageAdded)}><Image size={18}/> {imageAdded?"Image added":"Image"}</button><button className={spoiler?"tool-active":""} onClick={()=>setSpoiler(!spoiler)}><ShieldCheck size={18}/> {spoiler?"Spoiler on":"Spoiler"}</button><button onClick={()=>setBody(b=>b+"\n\n#poll ")}><MoreHorizontal size={18}/> Add tag</button><span>{spoiler ? "Spoiler enabled" : "Markdown supported"}</span></div><div className="composer-foot"><button className="ghost-btn" onClick={onClose}>Cancel</button><button className="primary-btn" disabled={!valid} onClick={()=>onCreate({community,title,body})}>Publish post</button></div></div></div>; }
 
-function LoginModal({onClose,onDone}) { const [email,setEmail]=useState(""); const [password,setPassword]=useState(""); const [mode,setMode]=useState("login"); const valid=email.includes("@") && password.length>=6; return <div className="modal-backdrop" onMouseDown={onClose}><div className="login-modal" onMouseDown={e=>e.stopPropagation()}><button className="modal-x" onClick={onClose}><X size={18}/></button><div className="login-mark">C</div><h2>{mode === "login" ? "Welcome back" : "Create your account"}</h2><p>{mode === "login" ? "Continue your campus conversations." : "Use your university email to get started."}</p><label>University email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@university.edu"/></label><label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••"/></label><button className="primary-btn wide" disabled={!valid} onClick={onDone}>{mode === "login" ? "Log in" : "Create account"}</button><button className="sso" onClick={onDone}>Continue with university SSO</button><div className="tiny"><ShieldCheck size={12}/> University email helps keep the community campus-only.</div><button className="mode-switch" onClick={()=>setMode(mode === "login" ? "signup" : "login")}>{mode === "login" ? "Need an account? Create one" : "Already have an account? Log in"}</button><button className="ghost-btn" style={{marginTop:8}} onClick={onClose}>Maybe later</button></div></div>; }
+function LoginModal({onClose,onDone}) {
+  const [email,setEmail]=useState("");
+  const [password,setPassword]=useState("");
+  const [mode,setMode]=useState("login");
+  const [error,setError]=useState("");
+  const [busy,setBusy]=useState(false);
+  const valid=email.includes("@") && password.length>=6;
 
+  const submit = async () => {
+    if (!valid || busy) return;
+    setBusy(true); setError("");
+    const result = mode === "login"
+      ? await supabase.auth.signInWithPassword({ email: email.trim(), password })
+      : await supabase.auth.signUp({ email: email.trim(), password });
+    setBusy(false);
+    if (result.error) { setError(result.error.message); return; }
+    if (mode === "signup" && !result.data.session) {
+      setError("Account created. Check your email to confirm your account, then log in.");
+      return;
+    }
+    onDone();
+  };
+
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="login-modal" onMouseDown={e=>e.stopPropagation()}>
+    <button className="modal-x" onClick={onClose}><X size={18}/></button><div className="login-mark">C</div>
+    <h2>{mode === "login" ? "Welcome back" : "Create your account"}</h2>
+    <p>{mode === "login" ? "Continue your campus conversations." : "Use your email to get started."}</p>
+    <label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@university.edu" autoComplete="email"/></label>
+    <label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" autoComplete={mode === "login" ? "current-password" : "new-password"}/></label>
+    {error && <div className="tiny" style={{marginTop:8}}>{error}</div>}
+    <button className="primary-btn wide" disabled={!valid || busy} onClick={submit}>{busy ? "Please wait..." : mode === "login" ? "Log in" : "Create account"}</button>
+    <button className="mode-switch" onClick={()=>{setMode(mode === "login" ? "signup" : "login");setError("");}}>{mode === "login" ? "Need an account? Create one" : "Already have an account? Log in"}</button>
+    <button className="ghost-btn" style={{marginTop:8}} onClick={onClose}>Maybe later</button>
+  </div></div>;
+}
 function CommentsModal({post,onClose,onAdd}) { return <div className="modal-backdrop" onMouseDown={onClose}><div className="comments-modal" onMouseDown={e=>e.stopPropagation()}><div className="composer-head"><div><span className="eyebrow">DISCUSSION</span><h2>{post.comments} comments</h2></div><button onClick={onClose}><X/></button></div><div className="comment-post"><strong>{post.title}</strong><p>{post.body}</p></div><div className="comments-list">{comments.map(c=><div className="comment" key={c.author}><span className="avatar">{c.avatar}</span><div><b>u/{c.author}</b><small>{c.time}</small><p>{c.text}</p></div></div>)}</div><button className="primary-btn wide" onClick={onAdd}><MessageCircle size={16}/> Join the discussion</button></div></div>; }
 
 function PostMenu({post,onClose,onShare,onSave,onReport}) { return <div className="modal-backdrop subtle" onMouseDown={onClose}><div className="post-menu-modal" onMouseDown={e=>e.stopPropagation()}><div className="menu-title"><strong>Post options</strong><button onClick={onClose}><X size={18}/></button></div><p>{post.title}</p><button onClick={onSave}><Bookmark size={17}/> {post.saved ? "Remove from saved" : "Save post"}</button><button onClick={onShare}><Send size={17}/> Share post</button><button onClick={onReport} className="danger"><Flag size={17}/> Report post</button></div></div>; }
