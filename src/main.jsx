@@ -60,12 +60,13 @@ function App() {
       if (userId) {
         const [{ data: memberships }, { data: profileRow }, { data: noteRows }] = await Promise.all([
           supabase.from("community_members").select("community_id").eq("user_id", userId),
-          supabase.from("profiles").select("id,username,display_name,bio,avatar_url,course,year,campus,created_at").eq("id", userId).maybeSingle(),
+          supabase.from("profile_activity_counts").select("id,post_count,comment_count,karma").eq("id", userId).maybeSingle(),
           supabase.from("notifications").select("id,type,title,body,read,created_at").eq("user_id", userId).order("created_at", { ascending:false }).limit(20)
         ]);
         const names = (memberships || []).map(x => data.communities.find(c => c.id === x.community_id)?.name).filter(Boolean);
         setJoined(Array.from(new Set(names)));
-        setProfile(profileRow || null);
+        const { data: profileBase } = await supabase.from("profiles").select("id,username,display_name,bio,avatar_url,course,year,campus,created_at").eq("id", userId).maybeSingle();
+        setProfile(profileBase ? {...profileBase, postCount: profileRow?.post_count || 0, commentCount: profileRow?.comment_count || 0, karma: profileRow?.karma || 0} : null);
         setNotifications(noteRows || []);
         setNotificationsRead((noteRows || []).every(n => n.read));
       } else {
