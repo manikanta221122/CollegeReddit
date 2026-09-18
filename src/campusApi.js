@@ -3,10 +3,18 @@ import { supabase } from "./supabaseClient";
 export async function loadCampusData(userId) {
   const [{ data: communities, error: ce }, { data: posts, error: pe }] = await Promise.all([
     supabase.from("communities").select("*").order("created_at"),
-    supabase.from("posts").select("id,community_id,author_id,title,body,tags,created_at,communities(name,label,icon,color),profiles:author_id(username,display_name,avatar_url)").order("created_at",{ascending:false})
+    supabase.from("posts").select("id,community_id,author_id,title,body,tags,created_at,communities(name,label,icon,color)").order("created_at",{ascending:false})
   ]);
   if (ce) throw ce;
   if (pe) throw pe;
+  const authorIds=[...new Set((posts||[]).map(p=>p.author_id).filter(Boolean))];
+  let profiles=[];
+  if(authorIds.length){
+    const {data,error}=await supabase.from("profiles").select("id,username,display_name,avatar_url").in("id",authorIds);
+    if(error) throw error;
+    profiles=data||[];
+  }
+  const profileMap=new Map(profiles.map(p=>[p.id,p]));
 
   const [membersRes, savedRes, votesRes, commentsRes] = await Promise.all([
     supabase.from("community_members").select("community_id"),
@@ -31,8 +39,8 @@ export async function loadCampusData(userId) {
   }));
   const mappedPosts=(posts||[]).map(p=>({
     id:p.id, community:p.communities?.name || "campus", title:p.title, body:p.body,
-    author:p.profiles?.username || p.profiles?.display_name || "Campus member",
-    avatar:(p.profiles?.display_name || p.profiles?.username || "CM").slice(0,2).toUpperCase(),
+    author:profileMap.get(p.author_id)?.username || profileMap.get(p.author_id)?.display_name || "Campus Team",
+    avatar:(profileMap.get(p.author_id)?.display_name || profileMap.get(p.author_id)?.username || "CT").slice(0,2).toUpperCase(),
     time:formatRelative(p.created_at), votes:0, comments:commentCounts[p.id]||0,
     saved:saved.has(p.id), myVote:votes.get(p.id)||0, tags:p.tags||[],
     hot:false
