@@ -41,9 +41,12 @@ export async function loadCampusData(userId) {
     id:p.id, community:p.communities?.name || "campus", title:p.title, body:p.body,
     author:profileMap.get(p.author_id)?.username || profileMap.get(p.author_id)?.display_name || "Campus Team",
     avatar:(profileMap.get(p.author_id)?.display_name || profileMap.get(p.author_id)?.username || "CT").slice(0,2).toUpperCase(),
-    time:formatRelative(p.created_at), votes:0, comments:commentCounts[p.id]||0,
+    time:formatRelative(p.created_at), createdAt:p.created_at, votes:0, comments:commentCounts[p.id]||0,
     saved:saved.has(p.id), myVote:votes.get(p.id)||0, tags:p.tags||[],
-    hot:false
+    hot:false,
+    communityLabel:p.communities?.label || p.communities?.name || "Campus",
+    communityIcon:p.communities?.icon || "🏫",
+    communityColor:p.communities?.color || "#f97316"
   }));
 
   if (mappedPosts.length) {
