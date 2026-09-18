@@ -45,6 +45,7 @@ function App() {
   const [onboarding, setOnboarding] = useState(() => localStorage.getItem("campusverse_onboarding_done") !== "1");
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [suggested, setSuggested] = useState([]);
+  const [following, setFollowing] = useState(new Set());
   useEffect(() => { if (!suggested.length && communitiesData.length) setSuggested(communitiesData.slice(0,3).map(c=>c.name)); }, [communitiesData]);
   const searchRef = useRef(null);
 
@@ -69,21 +70,24 @@ function App() {
       setPosts(data.posts);
 
       if (userId) {
-        const [{ data: memberships }, { data: profileRow }, { data: noteRows }] = await Promise.all([
+        const [{ data: memberships }, { data: profileRow }, { data: noteRows }, { data: followRows }] = await Promise.all([
           supabase.from("community_members").select("community_id").eq("user_id", userId),
           supabase.from("profile_activity_counts").select("id,post_count,comment_count,karma").eq("id", userId).maybeSingle(),
-          supabase.from("notifications").select("id,type,message,read_at,created_at,actor_id,post_id").eq("user_id", userId).order("created_at", { ascending:false }).limit(20)
+          supabase.from("notifications").select("id,type,message,read_at,created_at,actor_id,post_id").eq("user_id", userId).order("created_at", { ascending:false }).limit(20),
+          supabase.from("follows").select("following_id").eq("follower_id", userId)
         ]);
         const names = (memberships || []).map(x => data.communities.find(c => c.id === x.community_id)?.name).filter(Boolean);
         setJoined(Array.from(new Set(names)));
         const { data: profileBase } = await supabase.from("profiles").select("id,username,display_name,bio,avatar_url,course,year,campus,created_at").eq("id", userId).maybeSingle();
         setProfile(profileBase ? {...profileBase, postCount: profileRow?.post_count || 0, commentCount: profileRow?.comment_count || 0, karma: profileRow?.karma || 0} : null);
         setNotifications(noteRows || []);
+        setFollowing(new Set((followRows || []).map(x => x.following_id)));
         setNotificationsRead((noteRows || []).every(n => !!n.read_at));
       } else {
         setJoined([]);
         setProfile(null);
         setNotifications([]);
+        setFollowing(new Set());
         setNotificationsRead(true);
       }
     } catch (e) {
@@ -120,8 +124,8 @@ function App() {
     };
     window.addEventListener("keydown", onKey);
     const onToast = (e) => notify(e.detail);
-    window.addEventListener("campusreddit:toast", onToast);
-    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("campusreddit:toast", onToast); };
+    window.addEventListener("campusverse:toast", onToast);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("campusverse:toast", onToast); };
   }, []);
 
   const finishOnboarding = async (choice = suggested) => {
@@ -169,6 +173,18 @@ function App() {
     catch (e) { notify(e.message || "Save failed"); }
   };
 
+  const toggleFollow = async (personId) => {
+    if (!session) { setShowLogin(true); return; }
+    if (!personId || personId === session.user.id) return;
+    const isFollowing = following.has(personId);
+    try {
+      if (isFollowing) await supabase.from("follows").delete().eq("follower_id",session.user.id).eq("following_id",personId);
+      else await supabase.from("follows").insert({follower_id:session.user.id,following_id:personId});
+      setFollowing(prev => { const n=new Set(prev); isFollowing ? n.delete(personId) : n.add(personId); return n; });
+      notify(isFollowing ? "Unfollowed" : "Following");
+    } catch(e) { notify(e.message || "Could not update follow"); }
+  };
+
   const toggleJoin = async (name) => {
     if (!session) { setShowLogin(true); return; }
     const c = communitiesData.find(x => x.name === name);
@@ -196,7 +212,18 @@ function App() {
   const createPost = async (data) => {
     if (!session) { setShowLogin(true); return; }
     try {
-      await createCampusPost({ ...data, tags: ["New Post"], userId: session.user.id });
+      let imageUrl = null;
+      if (data.file) {
+        const file = data.file;
+        if (!["image/jpeg","image/png","image/webp","image/gif"].includes(file.type)) throw new Error("Use JPG, PNG, WEBP or GIF.");
+        if (file.size > 10*1024*1024) throw new Error("Post image must be 10 MB or smaller.");
+        const ext=(file.name.split(".").pop()||"jpg").toLowerCase();
+        const path=session.user.id+"/post-"+Date.now()+"."+ext;
+        const {error:uploadError}=await supabase.storage.from("post-media").upload(path,file,{upsert:false,contentType:file.type,cacheControl:"3600"});
+        if(uploadError) throw uploadError;
+        imageUrl=supabase.storage.from("post-media").getPublicUrl(path).data.publicUrl;
+      }
+      await createCampusPost({ ...data, tags: ["New Post"], userId: session.user.id, imageUrl });
       setShowComposer(false); setActive("Home"); await refreshData(session.user.id); notify("Post published");
     } catch (e) { notify(e.message || "Could not publish post"); }
   };
@@ -258,7 +285,7 @@ function App() {
                 <div className="feed-title"><h2>{active === "My Feed" ? "Your feed" : active === "Saved" ? "Saved posts" : "Today's campus"}</h2><span>{visiblePosts.length} conversations</span></div>
                 <div className="sort-tabs">{["Hot", "New", "Top"].map(s => <button key={s} className={sort === s ? "selected" : ""} onClick={() => setSort(s)}>{s === "Hot" && <Flame size={15}/>} {s}</button>)}</div>
               </div>
-              <div className="feed">{loadingData ? <div className="empty"><div>⏳</div><h3>Loading campus conversations…</h3><p>Connecting to the campus database.</p></div> : visiblePosts.length ? <FeedWithSuggestions posts={visiblePosts} vote={vote} toggleSave={toggleSave} onComment={setCommentPost} onShare={sharePost} onMore={setPostMenu} joined={joined} communities={communitiesData} onJoin={toggleJoin} /> : <EmptyState title={active === "Saved" ? "Nothing saved yet" : active === "My Feed" ? "Your feed is quiet" : "No posts found"} onCreate={() => setShowComposer(true)} />}</div>
+              <div className="feed">{loadingData ? <div className="empty"><div>⏳</div><h3>Loading campus conversations…</h3><p>Connecting to the campus database.</p></div> : visiblePosts.length ? <FeedWithSuggestions posts={visiblePosts} vote={vote} toggleSave={toggleSave} onComment={setCommentPost} onShare={sharePost} onMore={setPostMenu} joined={joined} communities={communitiesData} onJoin={toggleJoin} following={following} onFollow={toggleFollow} session={session} /> : <EmptyState title={active === "Saved" ? "Nothing saved yet" : active === "My Feed" ? "Your feed is quiet" : "No posts found"} onCreate={() => setShowComposer(true)} />}</div>
             </>}
         </main>
 
@@ -297,7 +324,7 @@ function WelcomeOverlay({communities,step,setStep,suggested,setSuggested,onLogin
   const toggle = (name) => setSuggested(s => s.includes(name) ? s.filter(x => x !== name) : [...s, name]);
   return <div className="welcome-backdrop"><div className="welcome-shell">
     <button className="welcome-close" onClick={onSkip} aria-label="Skip onboarding"><X size={18}/></button>
-    {step === 0 ? <div className="welcome-intro"><div className="welcome-logo">C</div><span className="eyebrow">WELCOME TO CAMPUSREDDIT</span><h1>Your campus has a new front page.</h1><p>Ask questions, find communities, share what is happening and meet people who actually understand campus life.</p><div className="welcome-points"><span>🔥 Live campus conversations</span><span>👥 Communities for every interest</span><span>🛡️ Student-first community tools</span></div><div className="welcome-actions"><button className="primary-btn" onClick={() => setStep(1)}>Personalize my feed <Sparkles size={16}/></button><button className="welcome-login" onClick={onLogin}>I already have an account</button></div><button className="later-btn" onClick={onSkip}>Maybe later, let me explore</button></div>
+    {step === 0 ? <div className="welcome-intro"><div className="welcome-logo">C</div><span className="eyebrow">WELCOME TO CAMPUSVERSE</span><h1>Your campus has a new front page.</h1><p>Ask questions, find communities, share what is happening and meet people who actually understand campus life.</p><div className="welcome-points"><span>🔥 Live campus conversations</span><span>👥 Communities for every interest</span><span>🛡️ Student-first community tools</span></div><div className="welcome-actions"><button className="primary-btn" onClick={() => setStep(1)}>Personalize my feed <Sparkles size={16}/></button><button className="welcome-login" onClick={onLogin}>I already have an account</button></div><button className="later-btn" onClick={onSkip}>Maybe later, let me explore</button></div>
     : <div className="welcome-select"><div className="welcome-top"><div><span className="eyebrow">STEP 2 OF 2</span><h2>Pick a few communities</h2><p>We'll use these to shape your first feed. You can change them anytime.</p></div><div className="step-count">{suggested.length} selected</div></div><div className="suggestion-grid">{communities.map(c => <button key={c.name} className={`suggestion-card ${suggested.includes(c.name) ? "selected" : ""}`} onClick={() => toggle(c.name)}><span className="community-icon" style={{background:c.color+"18"}}>{c.icon}</span><span><strong>r/{c.name}</strong><small>{c.label} · {c.members} members</small></span><span className="select-check">{suggested.includes(c.name) ? <Check size={14}/> : ""}</span></button>)}</div><div className="welcome-actions"><button className="primary-btn" onClick={() => onFinish(suggested)}>Enter CampusVerse <ArrowUp size={16}/></button><button className="welcome-login" onClick={() => setStep(0)}>Back</button></div><button className="later-btn" onClick={onSkip}>Skip suggestions and explore</button></div>}
     <div className="welcome-footer"><Lock size={12}/> No account is created until you choose to sign up.</div>
   </div></div>;
@@ -325,18 +352,18 @@ function ProfileMenu({session,profile,onNavigate,onInfo,onLogin,onLogout}) {
   </div>;
 }
 
-function FeedWithSuggestions({posts,vote,toggleSave,onComment,onShare,onMore,joined,communities,onJoin}) {
+function FeedWithSuggestions({posts,vote,toggleSave,onComment,onShare,onMore,joined,communities,onJoin,following,onFollow,session}) {
   const [people,setPeople]=useState([]);
-  useEffect(()=>{const ids=[...new Set(posts.map(p=>p.author).filter(Boolean))]; if(!ids.length){setPeople([]);return;} supabase.from("profiles").select("id,username,display_name,avatar_url").limit(30).then(({data})=>setPeople(data||[]));},[posts]);
+  useEffect(()=>{const ids=[...new Set(posts.map(p=>p.authorId).filter(Boolean))]; if(!ids.length){setPeople([]);return;} supabase.from("profiles").select("id,username,display_name,avatar_url").limit(30).then(({data})=>setPeople(data||[]));},[posts]);
   const suggestions=communities.filter(c=>!joined.includes(c.name)).slice(0,3);
-  return <>{posts.map((post,i)=><React.Fragment key={post.id}><PostCard post={post} vote={vote} toggleSave={toggleSave} onComment={()=>onComment(post)} onShare={()=>onShare(post)} onMore={()=>onMore(post)}/>{(i===4 || (i===9 && suggestions.length)) && <SuggestionStrip communities={suggestions} people={people} onJoin={onJoin}/>}</React.Fragment>)}</>;
+  return <>{posts.map((post,i)=><React.Fragment key={post.id}><PostCard post={post} vote={vote} toggleSave={toggleSave} onComment={()=>onComment(post)} onShare={()=>onShare(post)} onMore={()=>onMore(post)}/>{(i===4 || (i===9 && suggestions.length)) && <SuggestionStrip communities={suggestions} people={people} following={following} onJoin={onJoin} onFollow={onFollow} session={session}/>}</React.Fragment>)}</>;
 }
-function SuggestionStrip({communities,people,onJoin}) {
+function SuggestionStrip({communities,people,following,onJoin,onFollow,session}) {
   return <section className="suggestion-strip"><div className="suggestion-strip-head"><div><span className="eyebrow">FOR YOU</span><h3>Suggested for you</h3><p>Discover communities and students you may want to follow.</p></div><Sparkles size={20}/></div><div className="suggestion-cards">{communities.map(c=><div className="suggestion-item" key={c.name}><span className="community-icon" style={{background:c.color+"18"}}>{c.icon}</span><div><strong>r/{c.name}</strong><small>{c.label}</small></div><button className="join-btn" onClick={()=>onJoin(c.name)}>Join</button></div>)}</div></section>;
 }
 function PostCard({post,vote,toggleSave,onComment,onShare,onMore}) {
   const community = { name: post.community, label: post.communityLabel, icon: post.communityIcon || "🏫", color: post.communityColor || "#f97316" };
-  return <article className="post-card"><div className="vote-column"><button onClick={() => vote(post.id,"up")} aria-label="Upvote"><ArrowUp size={20}/></button><strong>{post.votes.toLocaleString()}</strong><button onClick={() => vote(post.id,"down")} aria-label="Downvote"><ArrowDown size={20}/></button></div><div className="post-main"><div className="post-meta"><span className="community-icon small" style={{background:community.color+"18"}}>{community.icon}</span><b>r/{post.community}</b><span>•</span><span>Posted by u/{post.author}</span><span>•</span><span>{post.time}</span>{post.hot && <span className="hot-pill"><Flame size={11}/> Hot</span>}</div><h3>{post.title}</h3><p className="post-body">{post.body}</p><div className="tags">{post.tags.map(t => <span key={t}>#{t}</span>)}</div><div className="post-actions"><button onClick={onComment}><MessageCircle size={17}/> {post.comments} Comments</button><button onClick={() => toggleSave(post.id)} className={post.saved ? "saved" : ""}><Bookmark size={17} fill={post.saved ? "currentColor" : "none"}/> {post.saved ? "Saved" : "Save"}</button><button onClick={onShare}><Send size={16}/> Share</button><button className="more" onClick={onMore} aria-label="More options"><MoreHorizontal size={18}/></button></div></div></article>;
+  return <article className="post-card"><div className="vote-column"><button onClick={() => vote(post.id,"up")} aria-label="Upvote"><ArrowUp size={20}/></button><strong>{post.votes.toLocaleString()}</strong><button onClick={() => vote(post.id,"down")} aria-label="Downvote"><ArrowDown size={20}/></button></div><div className="post-main"><div className="post-meta"><span className="community-icon small" style={{background:community.color+"18"}}>{community.icon}</span><b>r/{post.community}</b><span>•</span><span>Posted by u/{post.author}</span><span>•</span><span>{post.time}</span>{post.hot && <span className="hot-pill"><Flame size={11}/> Hot</span>}</div><h3>{post.title}</h3><p className="post-body">{post.body}</p>{post.imageUrl && <img className="post-image" src={post.imageUrl} alt="" loading="lazy" />}<div className="tags">{post.tags.map(t => <span key={t}>#{t}</span>)}</div><div className="post-actions"><button onClick={onComment}><MessageCircle size={17}/> {post.comments} Comments</button><button onClick={() => toggleSave(post.id)} className={post.saved ? "saved" : ""}><Bookmark size={17} fill={post.saved ? "currentColor" : "none"}/> {post.saved ? "Saved" : "Save"}</button><button onClick={onShare}><Send size={16}/> Share</button><button className="more" onClick={onMore} aria-label="More options"><MoreHorizontal size={18}/></button></div></div></article>;
 }
 
 function CommunityRow({c,joined,toggle}) { return <div className="community-row"><span className="community-icon" style={{background:c.color+"18"}}>{c.icon}</span><div className="grow"><strong>r/{c.name}</strong><small>{c.members} members</small></div><button className={joined ? "joined-btn" : "join-btn"} onClick={toggle}>{joined ? "Joined" : "Join"}</button></div>; }
@@ -414,14 +441,14 @@ function ProfilePage({profile,communities,joined,onExplore,onCreate,session,onSa
 }
 
 function notifyProfile(message) {
-  window.dispatchEvent(new CustomEvent("campusreddit:toast", { detail: message }));
+  window.dispatchEvent(new CustomEvent("campusverse:toast", { detail: message }));
 }
 
 function Explore({communities,joined,toggleJoin,onCreate}) { return <><div className="explore-head"><span className="eyebrow"><Compass size={14}/> DISCOVER</span><h1>Find your corner of campus.</h1><p>Communities are the rooms of CampusVerse. Join the ones that feel like home.</p><button className="primary-btn" onClick={onCreate}><Plus size={17}/> Start a conversation</button></div><div className="community-grid">{communities.map(c => <div className="explore-card" key={c.name}><div className="explore-icon" style={{background:c.color+"18"}}>{c.icon}</div><div><h3>r/{c.name}</h3><p>{c.label}</p><small>{c.members} members</small></div><button className={joined.includes(c.name) ? "joined-btn" : "join-btn"} onClick={() => toggleJoin(c.name)}>{joined.includes(c.name) ? "Joined" : "Join"}</button></div>)}</div></>; }
 
 function EmptyState({onCreate,title="No posts here yet"}) { return <div className="empty"><div>🛰️</div><h3>{title}</h3><p>Be the person who starts the conversation.</p><button className="primary-btn" onClick={onCreate}><Plus size={17}/> Create a post</button></div>; }
 
-function Composer({communities,onClose,onCreate}) { const [community,setCommunity]=useState("campus"); const [title,setTitle]=useState(""); const [body,setBody]=useState(""); const [imageAdded,setImageAdded]=useState(false); const [spoiler,setSpoiler]=useState(false); const valid=title.trim().length>3; return <div className="modal-backdrop" onMouseDown={onClose}><div className="composer" onMouseDown={e=>e.stopPropagation()}><div className="composer-head"><div><span className="eyebrow">CREATE</span><h2>Start a conversation</h2></div><button onClick={onClose}><X/></button></div><label>Community<select value={community} onChange={e=>setCommunity(e.target.value)}>{communities.map(c=><option value={c.name} key={c.name}>r/{c.name}</option>)}</select></label><label>Title<input autoFocus value={title} onChange={e=>setTitle(e.target.value)} placeholder="What's on your mind?" maxLength={140}/><small>{title.length}/140</small></label><label>Body<textarea value={body} onChange={e=>setBody(e.target.value)} placeholder="Add context, a question, a story, or just say hello..." rows="6"/></label><div className="composer-tools"><button className={imageAdded?"tool-active":""} onClick={()=>setImageAdded(!imageAdded)}><Image size={18}/> {imageAdded?"Image added":"Image"}</button><button className={spoiler?"tool-active":""} onClick={()=>setSpoiler(!spoiler)}><ShieldCheck size={18}/> {spoiler?"Spoiler on":"Spoiler"}</button><button onClick={()=>setBody(b=>b+"\n\n#poll ")}><MoreHorizontal size={18}/> Add tag</button><span>{spoiler ? "Spoiler enabled" : "Markdown supported"}</span></div><div className="composer-foot"><button className="ghost-btn" onClick={onClose}>Cancel</button><button className="primary-btn" disabled={!valid} onClick={()=>onCreate({community,title,body})}>Publish post</button></div></div></div>; }
+function Composer({communities,onClose,onCreate}) { const [community,setCommunity]=useState("campus"); const [title,setTitle]=useState(""); const [body,setBody]=useState(""); const [file,setFile]=useState(null); const [imageAdded,setImageAdded]=useState(false); const [spoiler,setSpoiler]=useState(false); const valid=title.trim().length>3; return <div className="modal-backdrop" onMouseDown={onClose}><div className="composer" onMouseDown={e=>e.stopPropagation()}><div className="composer-head"><div><span className="eyebrow">CREATE</span><h2>Start a conversation</h2></div><button onClick={onClose}><X/></button></div><label>Community<select value={community} onChange={e=>setCommunity(e.target.value)}>{communities.map(c=><option value={c.name} key={c.name}>r/{c.name}</option>)}</select></label><label>Title<input autoFocus value={title} onChange={e=>setTitle(e.target.value)} placeholder="What's on your mind?" maxLength={140}/><small>{title.length}/140</small></label><label>Body<textarea value={body} onChange={e=>setBody(e.target.value)} placeholder="Add context, a question, a story, or just say hello..." rows="6"/></label><div className="composer-tools"><label className={`composer-image-btn ${imageAdded?"tool-active":""}`}><Image size={18}/> {imageAdded ? file?.name || "Image added" : "Add image"}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={e=>{const f=e.target.files?.[0]; if(f){setFile(f);setImageAdded(true);}}}/></label><button className={spoiler?"tool-active":""} onClick={()=>setSpoiler(!spoiler)}><ShieldCheck size={18}/> {spoiler?"Spoiler on":"Spoiler"}</button><button onClick={()=>setBody(b=>b+"\n\n#poll ")}><MoreHorizontal size={18}/> Add tag</button><span>{spoiler ? "Spoiler enabled" : "Markdown supported"}</span></div><div className="composer-foot"><button className="ghost-btn" onClick={onClose}>Cancel</button><button className="primary-btn" disabled={!valid} onClick={()=>onCreate({community,title,body,file})}>Publish post</button></div></div></div>; }
 
 function LoginModal({onClose,onDone}) {
   const [email,setEmail]=useState("");
