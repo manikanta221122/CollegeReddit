@@ -140,3 +140,7 @@ button { font-family: inherit; }
 .profile-actions button { border:0; background:#f7f7f8; border-radius:9px; padding:10px; text-align:left; display:flex; align-items:center; gap:8px; font-size:10px; color:#555; cursor:pointer; }
 .profile-actions button:hover { background:#fff0e7; color:#e35c16; }
 @media(max-width:800px){ .profile-hero{align-items:flex-start; flex-wrap:wrap}.profile-copy{min-width:calc(100% - 90px)}.profile-hero .ghost-btn{margin-left:85px}.profile-grid{grid-template-columns:1fr}.profile-stats strong{font-size:15px}.profile-stats div{padding:11px 8px} }
+
+
+/* Authentication modal must appear above onboarding */
+.auth-modal-backdrop { z-index: 300 !important; }
