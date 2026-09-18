@@ -3,7 +3,7 @@ import { supabase } from "./supabaseClient";
 export async function loadCampusData(userId) {
   const [{ data: communities, error: ce }, { data: posts, error: pe }] = await Promise.all([
     supabase.from("communities").select("*").order("created_at"),
-    supabase.from("posts").select("id,community_id,author_id,title,body,tags,created_at,communities(name,label,icon,color)").order("created_at",{ascending:false})
+    supabase.from("posts").select("id,community_id,author_id,title,body,tags,image_url,created_at,communities(name,label,icon,color)").order("created_at",{ascending:false})
   ]);
   if (ce) throw ce;
   if (pe) throw pe;
@@ -38,7 +38,7 @@ export async function loadCampusData(userId) {
     ...c, members: memberCounts[c.id] || "0", memberCount: memberCounts[c.id] || 0
   }));
   const mappedPosts=(posts||[]).map(p=>({
-    id:p.id, community:p.communities?.name || "campus", title:p.title, body:p.body,
+    id:p.id, community:p.communities?.name || "campus", title:p.title, body:p.body, imageUrl:p.image_url || "", authorId:p.author_id,
     author:profileMap.get(p.author_id)?.username || profileMap.get(p.author_id)?.display_name || "Campus Team",
     avatar:(profileMap.get(p.author_id)?.display_name || profileMap.get(p.author_id)?.username || "CT").slice(0,2).toUpperCase(),
     time:formatRelative(p.created_at), createdAt:p.created_at, votes:0, comments:commentCounts[p.id]||0,
@@ -79,11 +79,11 @@ export async function toggleCommunityMembership(communityId,userId,joined){
   }
 }
 
-export async function createCampusPost({community,title,body,tags=[],userId}){
+export async function createCampusPost({community,title,body,tags=[],userId,imageUrl=null}){
   if(!userId) throw new Error("Log in to publish a post.");
   const {data:c,error:ce}=await supabase.from("communities").select("id").eq("name",community).single();
   if(ce) throw ce;
-  const {data,error}=await supabase.from("posts").insert({community_id:c.id,author_id:userId,title:title.trim(),body:body.trim(),tags}).select("id").single();
+  const {data,error}=await supabase.from("posts").insert({community_id:c.id,author_id:userId,title:title.trim(),body:body.trim(),tags,image_url:imageUrl}).select("id").single();
   if(error) throw error;
   return data;
 }
