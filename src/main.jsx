@@ -10,31 +10,6 @@ import { supabase } from "./supabaseClient";
 import { loadCampusData, toggleCommunityMembership, createCampusPost, togglePostSave, voteOnPost, addCampusComment, reportCampusPost } from "./campusApi";
 import "./styles.css";
 
-const communities = [
-  { name: "campus", label: "Campus", members: "18.4k", icon: "🏫", color: "#f97316" },
-  { name: "academics", label: "Academics", members: "7.8k", icon: "📚", color: "#6366f1" },
-  { name: "hostel", label: "Hostel Life", members: "6.3k", icon: "🛏️", color: "#14b8a6" },
-  { name: "placements", label: "Placements", members: "9.1k", icon: "💼", color: "#0ea5e9" },
-  { name: "gaming", label: "Gaming", members: "5.6k", icon: "🎮", color: "#a855f7" },
-  { name: "vlsi", label: "VLSI", members: "2.1k", icon: "⚡", color: "#eab308" },
-  { name: "memes", label: "Campus Memes", members: "12.7k", icon: "😂", color: "#ec4899" },
-  { name: "events", label: "Events", members: "8.2k", icon: "🎪", color: "#22c55e" }
-];
-
-const initialPosts = [
-  { id: 1, community: "campus", title: "What is one thing you wish you knew before joining university?", body: "Starting a thread for juniors. Drop the advice you would have given yourself on day one.", author: "NightOwl_21", avatar: "NO", time: "2h ago", votes: 428, comments: 96, saved: false, tags: ["Discussion", "Freshers"], hot: true },
-  { id: 2, community: "placements", title: "Placement season checklist: what should I actually prepare?", body: "Made a practical checklist for aptitude, DSA, projects, resume and interviews. What am I missing?", author: "bytebender", avatar: "BB", time: "4h ago", votes: 317, comments: 54, saved: false, tags: ["Placements", "Guide"], hot: true },
-  { id: 3, community: "hostel", title: "Hostel food tier list. Be honest 😂", body: "Breakfast, lunch, dinner and that mysterious Sunday special. Which mess is actually winning?", author: "chai.exe", avatar: "CE", time: "5h ago", votes: 189, comments: 73, saved: true, tags: ["Hostel", "Poll"] },
-  { id: 4, community: "gaming", title: "KL Clash squad looking for one more player", body: "Looking for a calm IGL / support player for the weekend bracket. DM if you're interested.", author: "ZeroPing", avatar: "ZP", time: "7h ago", votes: 142, comments: 31, saved: false, tags: ["Gaming", "Recruitment"] },
-  { id: 5, community: "vlsi", title: "Resources that finally made MOSFETs click for me", body: "Collected a few diagrams, lecture notes and practice questions. Sharing in case someone is stuck on CO2.", author: "silicon_sai", avatar: "SS", time: "9h ago", votes: 97, comments: 18, saved: false, tags: ["VLSI", "Resources"] }
-];
-
-const comments = [
-  { author: "pixeljunior", avatar: "PJ", text: "Honestly, talk to seniors early. It saves a lot of guesswork.", time: "38m ago" },
-  { author: "bytebender", avatar: "BB", text: "Build one useful project every semester instead of collecting certificates.", time: "24m ago" },
-  { author: "chai.exe", avatar: "CE", text: "Also learn where the good food is before week two 😂", time: "11m ago" }
-];
-
 function App() {
   const [posts, setPosts] = useState([]);
   const [communitiesData, setCommunitiesData] = useState([]);
@@ -47,16 +22,19 @@ function App() {
   const [showComposer, setShowComposer] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notificationsRead, setNotificationsRead] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsRead, setNotificationsRead] = useState(true);
+  const [profile, setProfile] = useState(null);
   const [showProfile, setShowProfile] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [infoModal, setInfoModal] = useState(null);
   const [commentPost, setCommentPost] = useState(null);
   const [postMenu, setPostMenu] = useState(null);
-  const [onboarding, setOnboarding] = useState(() => localStorage.getItem("campusreddit_onboarding_done") !== "1");
+  const [onboarding, setOnboarding] = useState(() => localStorage.getItem("campusverse_onboarding_done") !== "1");
   const [onboardingStep, setOnboardingStep] = useState(0);
-  const [suggested, setSuggested] = useState(["campus", "academics", "placements"]);
+  const [suggested, setSuggested] = useState([]);
+  useEffect(() => { if (!suggested.length && communitiesData.length) setSuggested(communitiesData.slice(0,3).map(c=>c.name)); }, [communitiesData]);
   const searchRef = useRef(null);
 
   useEffect(() => {
@@ -78,10 +56,23 @@ function App() {
       if (!mountedData.current) return;
       setCommunitiesData(data.communities);
       setPosts(data.posts);
+
       if (userId) {
-        const { data: memberships } = await supabase.from("community_members").select("community_id").eq("user_id", userId);
-        const names = (memberships || []).map(m => data.communities.find(c => c.id === m.community_id)?.name).filter(Boolean);
-        setJoined(Array.from(new Set(["campus", ...names])));
+        const [{ data: memberships }, { data: profileRow }, { data: noteRows }] = await Promise.all([
+          supabase.from("community_members").select("community_id").eq("user_id", userId),
+          supabase.from("profiles").select("id,username,display_name,bio,avatar_url,course,year,campus,created_at").eq("id", userId).maybeSingle(),
+          supabase.from("notifications").select("id,type,title,body,read,created_at").eq("user_id", userId).order("created_at", { ascending:false }).limit(20)
+        ]);
+        const names = (memberships || []).map(x => data.communities.find(c => c.id === x.community_id)?.name).filter(Boolean);
+        setJoined(Array.from(new Set(names)));
+        setProfile(profileRow || null);
+        setNotifications(noteRows || []);
+        setNotificationsRead((noteRows || []).every(n => n.read));
+      } else {
+        setJoined([]);
+        setProfile(null);
+        setNotifications([]);
+        setNotificationsRead(true);
       }
     } catch (e) {
       if (mountedData.current) notify(e.message || "Could not load campus data");
@@ -91,6 +82,17 @@ function App() {
   };
   useEffect(() => () => { mountedData.current = false; }, []);
   useEffect(() => { refreshData(session?.user?.id); }, [session?.user?.id]);
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const channel = supabase.channel("campusverse-live")
+      .on("postgres_changes", { event:"*", schema:"public", table:"posts" }, () => refreshData(session.user.id))
+      .on("postgres_changes", { event:"*", schema:"public", table:"comments" }, () => refreshData(session.user.id))
+      .on("postgres_changes", { event:"*", schema:"public", table:"post_votes" }, () => refreshData(session.user.id))
+      .on("postgres_changes", { event:"*", schema:"public", table:"community_members" }, () => refreshData(session.user.id))
+      .on("postgres_changes", { event:"*", schema:"public", table:"notifications", filter:`user_id=eq.${session.user.id}` }, () => refreshData(session.user.id))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session?.user?.id]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -110,11 +112,19 @@ function App() {
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("campusreddit:toast", onToast); };
   }, []);
 
-  const finishOnboarding = (choice = suggested) => {
-    setJoined(Array.from(new Set(["campus", ...choice])));
-    localStorage.setItem("campusreddit_onboarding_done", "1");
+  const finishOnboarding = async (choice = suggested) => {
+    localStorage.setItem("campusverse_onboarding_done", "1");
     setOnboarding(false);
-    notify(choice.length ? `${choice.length} communities added to your feed` : "You're all set");
+    if (session?.user?.id) {
+      for (const name of choice) {
+        const c=communitiesData.find(x=>x.name===name);
+        if (c) await toggleCommunityMembership(c.id,session.user.id,false).catch(()=>{});
+      }
+      await refreshData(session.user.id);
+    } else {
+      setJoined(choice);
+    }
+    notify(choice.length ? `${choice.length} communities selected` : "You're all set");
   };
 
   const notify = (message) => {
@@ -163,8 +173,8 @@ function App() {
     }
     if (active === "Saved") result = result.filter(p => p.saved);
     if (active === "My Feed") result = result.filter(p => joined.includes(p.community));
-    if (communities.some(c => c.name === active)) result = result.filter(p => p.community === active);
-    if (sort === "New") result.sort((a, b) => b.id - a.id);
+    if (communitiesData.some(c => c.name === active)) result = result.filter(p => p.community === active);
+    if (sort === "New") result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     if (sort === "Top") result.sort((a, b) => b.votes - a.votes);
     if (sort === "Hot") result.sort((a, b) => Number(b.hot) - Number(a.hot) || b.votes - a.votes);
     return result;
@@ -189,7 +199,7 @@ function App() {
       <header className="topbar">
         <button className="brand" onClick={() => go("Home")} aria-label="Go home">
           <div className="brand-mark">C</div>
-          <div><div className="brand-name">Campus<span>Reddit</span></div><div className="brand-sub">your university, unfiltered</div></div>
+          <div><div className="brand-name">Campus<span>Reddit</span></div><div className="brand-sub">the live university network</div></div>
         </button>
         <div className="searchbox">
           <Search size={18}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search campus, communities, posts..."/><kbd>⌘ K</kbd>
@@ -199,8 +209,8 @@ function App() {
           <button className="icon-btn" onClick={() => { setShowNotifications(!showNotifications); setShowProfile(false); }} aria-label="Notifications"><Bell size={20}/>{!notificationsRead && <span className="notification-dot"/>}</button>
           <button className={`profile-pill ${showProfile ? "active" : ""}`} onClick={() => { setShowProfile(!showProfile); setShowNotifications(false); }} aria-expanded={showProfile}><span className="avatar me">YS</span><ChevronDown size={15}/></button>
         </div>
-        {showNotifications && <NotificationPanel read={notificationsRead} onRead={() => {setNotificationsRead(true); notify("Notifications marked as read")}}/>}
-        {showProfile && <ProfileMenu session={session} onNavigate={go} onInfo={setInfoModal} onLogin={() => setShowLogin(true)} onLogout={async () => { await supabase.auth.signOut(); setShowProfile(false); notify("Logged out"); }}/>} 
+        {showNotifications && <NotificationPanel notifications={notifications} read={notificationsRead} onRead={async () => { if (session) { await supabase.from("notifications").update({read:true}).eq("user_id",session.user.id); setNotificationsRead(true); setNotifications(n => n.map(x => ({...x,read:true}))); notify("Notifications marked as read"); } }}/>}
+        {showProfile && <ProfileMenu session={session} onNavigate={go} onInfo={setInfoModal} onLogin={() => setShowLogin(true)} onLogout={async () => { await supabase.auth.signOut(); localStorage.removeItem("campusverse_onboarding_done"); setShowProfile(false); notify("Logged out"); }}/>} 
       </header>
 
       <div className="layout">
@@ -214,20 +224,20 @@ function App() {
           </nav>
           <div className="sidebar-title">COMMUNITIES <button onClick={() => go("Explore")} aria-label="Explore communities"><Plus size={15}/></button></div>
           <div className="community-list">
-            {communities.slice(0, 6).map(c => <button className={`community-nav ${active === c.name ? "active" : ""}`} key={c.name} onClick={() => go(c.name)}><span className="community-icon" style={{background: c.color + "18"}}>{c.icon}</span><span>r/{c.name}</span></button>)}
+            {communitiesData.slice(0, 6).map(c => <button className={`community-nav ${active === c.name ? "active" : ""}`} key={c.name} onClick={() => go(c.name)}><span className="community-icon" style={{background: c.color + "18"}}>{c.icon}</span><span>r/{c.name}</span></button>)}
           </div>
           <div className="sidebar-card"><div className="mini-icon"><ShieldCheck size={18}/></div><div><strong>Campus verified</strong><p>Built for students. Reported content is reviewed by moderators.</p></div></div>
           <div className="sidebar-bottom"><button onClick={() => setInfoModal("about")}>About</button><button onClick={() => setInfoModal("rules")}>Rules</button><button onClick={() => setInfoModal("privacy")}>Privacy</button><button onClick={() => setInfoModal("help")}>Help</button></div>
         </aside>
 
         <main className="main">
-          {active === "Explore" ? <Explore communities={communitiesData.length ? communitiesData : communities} joined={joined} toggleJoin={toggleJoin} onCreate={() => setShowComposer(true)} />
-          : active === "Profile" ? <ProfilePage joined={joined} onExplore={() => go("Explore")} onCreate={() => setShowComposer(true)} />
-          : active !== "Home" && active !== "My Feed" && active !== "Saved" && communities.some(c => c.name === active)
-          ? <CommunityPage communities={communitiesData.length ? communitiesData : communities} name={active} joined={joined} toggleJoin={toggleJoin} onCreate={() => setShowComposer(true)} posts={visiblePosts} vote={vote} toggleSave={toggleSave} onComment={setCommentPost} onShare={sharePost} onMore={setPostMenu}/>
+          {active === "Explore" ? <Explore communities={communitiesData} joined={joined} toggleJoin={toggleJoin} onCreate={() => setShowComposer(true)} />
+          : active === "Profile" ? <ProfilePage profile={profile} communities={communitiesData} joined={joined} onExplore={() => go("Explore")} onCreate={() => setShowComposer(true)} session={session} onSaved={async () => { await refreshData(session?.user?.id); }}/>
+          : active !== "Home" && active !== "My Feed" && active !== "Saved" && communitiesData.some(c => c.name === active)
+          ? <CommunityPage communities={communitiesData} name={active} joined={joined} toggleJoin={toggleJoin} onCreate={() => setShowComposer(true)} posts={visiblePosts} vote={vote} toggleSave={toggleSave} onComment={setCommentPost} onShare={sharePost} onMore={setPostMenu}/>
           : <>
               {active === "Home" && <HomeHero session={session} onLogin={() => setShowLogin(true)} onCreate={() => setShowComposer(true)} onExplore={() => go("Explore")} />}
-              {active === "Home" && <QuickCommunities communities={communitiesData.length ? communitiesData : communities} joined={joined} toggleJoin={toggleJoin} onExplore={() => go("Explore")} />}
+              {active === "Home" && <QuickCommunities communities={communitiesData} joined={joined} toggleJoin={toggleJoin} onExplore={() => go("Explore")} />}
               <div className="feed-toolbar">
                 <div className="feed-title"><h2>{active === "My Feed" ? "Your feed" : active === "Saved" ? "Saved posts" : "Today's campus"}</h2><span>{visiblePosts.length} conversations</span></div>
                 <div className="sort-tabs">{["Hot", "New", "Top"].map(s => <button key={s} className={sort === s ? "selected" : ""} onClick={() => setSort(s)}>{s === "Hot" && <Flame size={15}/>} {s}</button>)}</div>
@@ -237,15 +247,15 @@ function App() {
         </main>
 
         <aside className="rightbar">
-          <div className="right-card trending"><div className="card-heading"><h3><Flame size={17}/> Trending today</h3><button onClick={() => go("Explore")}>See all</button></div>{["Placement season has started", "Hostel mess feedback", "Freshers asking for clubs", "KL Clash weekend bracket"].map((x, i) => <div className="trend" key={x} onClick={() => setQuery(x)}><span>0{i + 1}</span><div><strong>{x}</strong><small>{[892, 641, 508, 331][i]} upvotes</small></div></div>)}</div>
-          <div className="right-card communities-card"><div className="card-heading"><h3><Users size={17}/> Growing communities</h3><button onClick={() => go("Explore")}>Explore</button></div>{communities.slice(0, 4).map(c => <CommunityRow key={c.name} c={c} joined={joined.includes(c.name)} toggle={() => toggleJoin(c.name)}/>)}</div>
-          <div className="right-card campus-stats"><div className="stats-icon"><Trophy size={20}/></div><div><strong>Campus pulse</strong><p>1,842 students are active today.</p><div className="pulse"><i/><i/><i/><i/><i/><i/><i/><i/></div></div></div>
-          <div className="footer-note">CampusReddit is a student community platform.<br/>Respect the rules. Keep it human. © 2026</div>
+          <div className="right-card trending"><div className="card-heading"><h3><Flame size={17}/> Trending now</h3><button onClick={() => go("Explore")}>Explore</button></div>{posts.slice(0,5).map((p,i) => <div className="trend" key={p.id} onClick={() => setQuery(p.title)}><span>0{i+1}</span><div><strong>{p.title}</strong><small>{p.votes} votes · {p.comments} comments</small></div></div>)}{!posts.length && <div className="tiny">No live conversations yet.</div>}</div>
+          <div className="right-card communities-card"><div className="card-heading"><h3><Users size={17}/> Communities</h3><button onClick={() => go("Explore")}>Explore</button></div>{communitiesData.slice(0,5).map(c => <CommunityRow key={c.name} c={c} joined={joined.includes(c.name)} toggle={() => toggleJoin(c.name)}/>)}</div>
+          <div className="right-card campus-stats"><div className="stats-icon"><Users size={20}/></div><div><strong>Live campus</strong><p>{posts.length} conversations loaded from the database.</p><div className="pulse"><i/><i/><i/><i/><i/><i/><i/><i/></div></div></div>
+          <div className="footer-note">CampusVerse is a live student community platform.<br/>Content shown here comes from the campus database.</div>
         </aside>
       </div>
 
-      {showComposer && <Composer communities={communitiesData.length ? communitiesData : communities} onClose={() => setShowComposer(false)} onCreate={createPost}/>} 
-      {showLogin && <LoginModal onClose={() => setShowLogin(false)} onDone={() => {setShowLogin(false); finishOnboarding(); notify("Welcome to CampusReddit")}}/>}
+      {showComposer && <Composer communities={communitiesData} onClose={() => setShowComposer(false)} onCreate={createPost}/>} 
+      {showLogin && <LoginModal onClose={() => setShowLogin(false)} onDone={() => {setShowLogin(false); finishOnboarding(); notify("Welcome to CampusVerse")}}/>}
       {commentPost && <CommentsModal post={commentPost} session={session} onClose={() => setCommentPost(null)} onRefresh={() => refreshData(session?.user?.id)} onLogin={() => setShowLogin(true)}/>} 
       {postMenu && <PostMenu post={postMenu} onClose={() => setPostMenu(null)} onShare={() => {sharePost(postMenu); setPostMenu(null)}} onSave={() => {toggleSave(postMenu.id); setPostMenu(null)}} onReport={async () => {
         if (!session) { setPostMenu(null); setShowLogin(true); return; }
@@ -253,7 +263,7 @@ function App() {
         catch (e) { notify(e.message || "Could not report post"); }
       }}/>} 
       {infoModal && <InfoModal type={infoModal} onClose={() => setInfoModal(null)}/>} 
-      {onboarding && <WelcomeOverlay step={onboardingStep} setStep={setOnboardingStep} suggested={suggested} setSuggested={setSuggested} onLogin={() => setShowLogin(true)} onFinish={finishOnboarding} onSkip={() => finishOnboarding([])} />}
+      {onboarding && <WelcomeOverlay communities={communitiesData} step={onboardingStep} setStep={setOnboardingStep} suggested={suggested} setSuggested={setSuggested} onLogin={() => setShowLogin(true)} onFinish={finishOnboarding} onSkip={() => finishOnboarding([])} />}
       {toast && <div className="toast"><Check size={16}/>{toast}</div>}
     </div>
   );
@@ -264,22 +274,22 @@ function HomeHero({session,onLogin,onCreate,onExplore}) {
 }
 
 function QuickCommunities({communities,joined,toggleJoin,onExplore}) {
-  return <section className="quick-communities"><div className="section-heading"><div><span className="eyebrow">GET STARTED</span><h2>Find your people</h2></div><button onClick={onExplore}>View all <Compass size={14}/></button></div><div className="quick-grid">{communities.slice(0, 4).map(c => <div className="quick-card" key={c.name}><span className="community-icon" style={{background:c.color+"18"}}>{c.icon}</span><div><strong>r/{c.name}</strong><small>{c.members} members</small></div><button className={joined.includes(c.name) ? "joined-btn" : "join-btn"} onClick={() => toggleJoin(c.name)}>{joined.includes(c.name) ? "Joined" : "Join"}</button></div>)}</div></section>;
+  return <section className="quick-communities"><div className="section-heading"><div><span className="eyebrow">GET STARTED</span><h2>Find your people</h2></div><button onClick={onExplore}>View all <Compass size={14}/></button></div><div className="quick-grid">{communitiesData.slice(0, 4).map(c => <div className="quick-card" key={c.name}><span className="community-icon" style={{background:c.color+"18"}}>{c.icon}</span><div><strong>r/{c.name}</strong><small>{c.memberCount ?? c.members ?? 0} members</small></div><button className={joined.includes(c.name) ? "joined-btn" : "join-btn"} onClick={() => toggleJoin(c.name)}>{joined.includes(c.name) ? "Joined" : "Join"}</button></div>)}</div></section>;
 }
 
-function WelcomeOverlay({step,setStep,suggested,setSuggested,onLogin,onFinish,onSkip}) {
+function WelcomeOverlay({communities,step,setStep,suggested,setSuggested,onLogin,onFinish,onSkip}) {
   const toggle = (name) => setSuggested(s => s.includes(name) ? s.filter(x => x !== name) : [...s, name]);
   return <div className="welcome-backdrop"><div className="welcome-shell">
     <button className="welcome-close" onClick={onSkip} aria-label="Skip onboarding"><X size={18}/></button>
     {step === 0 ? <div className="welcome-intro"><div className="welcome-logo">C</div><span className="eyebrow">WELCOME TO CAMPUSREDDIT</span><h1>Your campus has a new front page.</h1><p>Ask questions, find communities, share what is happening and meet people who actually understand campus life.</p><div className="welcome-points"><span>🔥 Live campus conversations</span><span>👥 Communities for every interest</span><span>🛡️ Student-first community tools</span></div><div className="welcome-actions"><button className="primary-btn" onClick={() => setStep(1)}>Personalize my feed <Sparkles size={16}/></button><button className="welcome-login" onClick={onLogin}>I already have an account</button></div><button className="later-btn" onClick={onSkip}>Maybe later, let me explore</button></div>
-    : <div className="welcome-select"><div className="welcome-top"><div><span className="eyebrow">STEP 2 OF 2</span><h2>Pick a few communities</h2><p>We'll use these to shape your first feed. You can change them anytime.</p></div><div className="step-count">{suggested.length} selected</div></div><div className="suggestion-grid">{communities.map(c => <button key={c.name} className={`suggestion-card ${suggested.includes(c.name) ? "selected" : ""}`} onClick={() => toggle(c.name)}><span className="community-icon" style={{background:c.color+"18"}}>{c.icon}</span><span><strong>r/{c.name}</strong><small>{c.label} · {c.members} members</small></span><span className="select-check">{suggested.includes(c.name) ? <Check size={14}/> : ""}</span></button>)}</div><div className="welcome-actions"><button className="primary-btn" onClick={() => onFinish(suggested)}>Enter CampusReddit <ArrowUp size={16}/></button><button className="welcome-login" onClick={() => setStep(0)}>Back</button></div><button className="later-btn" onClick={onSkip}>Skip suggestions and explore</button></div>}
+    : <div className="welcome-select"><div className="welcome-top"><div><span className="eyebrow">STEP 2 OF 2</span><h2>Pick a few communities</h2><p>We'll use these to shape your first feed. You can change them anytime.</p></div><div className="step-count">{suggested.length} selected</div></div><div className="suggestion-grid">{communitiesData.map(c => <button key={c.name} className={`suggestion-card ${suggested.includes(c.name) ? "selected" : ""}`} onClick={() => toggle(c.name)}><span className="community-icon" style={{background:c.color+"18"}}>{c.icon}</span><span><strong>r/{c.name}</strong><small>{c.label} · {c.members} members</small></span><span className="select-check">{suggested.includes(c.name) ? <Check size={14}/> : ""}</span></button>)}</div><div className="welcome-actions"><button className="primary-btn" onClick={() => onFinish(suggested)}>Enter CampusVerse <ArrowUp size={16}/></button><button className="welcome-login" onClick={() => setStep(0)}>Back</button></div><button className="later-btn" onClick={onSkip}>Skip suggestions and explore</button></div>}
     <div className="welcome-footer"><Lock size={12}/> No account is created until you choose to sign up.</div>
   </div></div>;
 }
 
 function NavItem({icon,label,active,onClick}) { return <button className={`nav-item ${active ? "active" : ""}`} onClick={onClick}>{React.cloneElement(icon,{size:19})}<span>{label}</span></button>; }
 
-function NotificationPanel({read,onRead}) { return <div className="notification-panel"><div className="panel-head"><strong>Notifications</strong><button onClick={onRead}>{read ? "All read" : "Mark all read"}</button></div><div className="notification"><span className="n-avatar">🔥</span><p><b>bytebender</b> replied to your campus thread.<small>12 min ago</small></p></div><div className="notification"><span className="n-avatar">🏆</span><p><b>KL Clash</b> posted a new tournament update.<small>1h ago</small></p></div><div className="notification"><span className="n-avatar">💬</span><p><b>NightOwl_21</b> mentioned you in r/campus.<small>2h ago</small></p></div></div>; }
+function NotificationPanel({read,onRead}) { return <div className="notification-panel"><div className="panel-head"><strong>Notifications</strong><button onClick={onRead}>{read ? "All read" : "Mark all read"}</button></div><div className="notification"><span className="n-avatar">🔥</span><p><b>bytebender</b> replied to your campus thread.<small>12 min ago</small></p></div><div className="notification"><span className="n-avatar">🏆</span><p><b>KL Clash</b> posted a new tournament update.<small>1h ago</small></p></div><div className="notification"><span className="n-avatar">💬</span><p><b>NightOwl_21</b> mentioned you in campus.<small>2h ago</small></p></div></div>; }
 
 function ProfileMenu({session,onNavigate,onInfo,onLogin,onLogout}) {
   return <div className="profile-menu">
@@ -293,19 +303,46 @@ function ProfileMenu({session,onNavigate,onInfo,onLogin,onLogout}) {
 }
 
 function PostCard({post,vote,toggleSave,onComment,onShare,onMore}) {
-  const community = communities.find(c => c.name === post.community) || communities[0];
+  const community = { name: post.community, label: post.communityLabel, icon: post.communityIcon || "🏫", color: post.communityColor || "#f97316" };
   return <article className="post-card"><div className="vote-column"><button onClick={() => vote(post.id,"up")} aria-label="Upvote"><ArrowUp size={20}/></button><strong>{post.votes.toLocaleString()}</strong><button onClick={() => vote(post.id,"down")} aria-label="Downvote"><ArrowDown size={20}/></button></div><div className="post-main"><div className="post-meta"><span className="community-icon small" style={{background:community.color+"18"}}>{community.icon}</span><b>r/{post.community}</b><span>•</span><span>Posted by u/{post.author}</span><span>•</span><span>{post.time}</span>{post.hot && <span className="hot-pill"><Flame size={11}/> Hot</span>}</div><h3>{post.title}</h3><p className="post-body">{post.body}</p><div className="tags">{post.tags.map(t => <span key={t}>#{t}</span>)}</div><div className="post-actions"><button onClick={onComment}><MessageCircle size={17}/> {post.comments} Comments</button><button onClick={() => toggleSave(post.id)} className={post.saved ? "saved" : ""}><Bookmark size={17} fill={post.saved ? "currentColor" : "none"}/> {post.saved ? "Saved" : "Save"}</button><button onClick={onShare}><Send size={16}/> Share</button><button className="more" onClick={onMore} aria-label="More options"><MoreHorizontal size={18}/></button></div></div></article>;
 }
 
 function CommunityRow({c,joined,toggle}) { return <div className="community-row"><span className="community-icon" style={{background:c.color+"18"}}>{c.icon}</span><div className="grow"><strong>r/{c.name}</strong><small>{c.members} members</small></div><button className={joined ? "joined-btn" : "join-btn"} onClick={toggle}>{joined ? "Joined" : "Join"}</button></div>; }
 
-function CommunityPage({communities,name,joined,toggleJoin,onCreate,posts,vote,toggleSave,onComment,onShare,onMore}) { const c = communities.find(x => x.name === name) || communities[0]; return <><div className="community-banner" style={{"--accent":c.color}}><div className="community-large">{c.icon}</div><div className="community-title"><span>r/{c.name}</span><h1>{c.label}</h1><p>{c.members} members · A place for university students to share, ask and connect.</p></div><button className={joined.includes(name) ? "joined-large" : "primary-btn"} onClick={() => toggleJoin(name)}>{joined.includes(name) ? "Joined" : "Join community"}</button></div><div className="feed-toolbar"><div className="feed-title"><h2>Community posts</h2><span>Fresh from r/{name}</span></div><button className="primary-btn compact" onClick={onCreate}><Plus size={16}/> Post</button></div><div className="feed">{posts.length ? posts.map(p => <PostCard key={p.id} post={p} vote={vote} toggleSave={toggleSave} onComment={() => onComment(p)} onShare={() => onShare(p)} onMore={() => onMore(p)}/>) : <EmptyState onCreate={onCreate}/>}</div></>; }
+function CommunityPage({communities,name,joined,toggleJoin,onCreate,posts,vote,toggleSave,onComment,onShare,onMore}) { const c = communities.find(x => x.name === name) || communities[0]; return <><div className="community-banner" style={{"--accent":c.color}}><div className="community-large">{c.icon}</div><div className="community-title"><span>r/{c.name}</span><h1>{c.label}</h1><p>{c.members} members · Live conversations from this campus community.</p></div><button className={joined.includes(name) ? "joined-large" : "primary-btn"} onClick={() => toggleJoin(name)}>{joined.includes(name) ? "Joined" : "Join community"}</button></div><div className="feed-toolbar"><div className="feed-title"><h2>Community posts</h2><span>Fresh from r/{name}</span></div><button className="primary-btn compact" onClick={onCreate}><Plus size={16}/> Post</button></div><div className="feed">{posts.length ? posts.map(p => <PostCard key={p.id} post={p} vote={vote} toggleSave={toggleSave} onComment={() => onComment(p)} onShare={() => onShare(p)} onMore={() => onMore(p)}/>) : <EmptyState onCreate={onCreate}/>}</div></>; }
 
-function ProfilePage({joined,onExplore,onCreate}) {
+function ProfilePage({profile,communities,joined,onExplore,onCreate,session,onSaved}) {
+  const [editing,setEditing]=useState(false);
+  const [name,setName]=useState(profile?.display_name || "");
+  const [username,setUsername]=useState(profile?.username || "");
+  const [bio,setBio]=useState(profile?.bio || "");
+  const [course,setCourse]=useState(profile?.course || "");
+  const [year,setYear]=useState(profile?.year || "");
+
+  useEffect(()=>{setName(profile?.display_name||"");setUsername(profile?.username||"");setBio(profile?.bio||"");setCourse(profile?.course||"");setYear(profile?.year||"");},[profile]);
+
+  const saveProfile=async()=>{
+    if(!session)return;
+    const {error}=await supabase.from("profiles").update({
+      display_name:name.trim()||null,
+      username:username.trim()||null,
+      bio:bio.trim()||null,
+      course:course.trim()||null,
+      year:year.trim()||null,
+      updated_at:new Date().toISOString()
+    }).eq("id",session.user.id);
+    if(error){notifyProfile(error.message);return;}
+    setEditing(false); notifyProfile("Profile updated"); window.location.reload();
+  };
+
+  const display=profile?.display_name || session?.user?.email?.split("@")[0] || "Campus member";
+  const initials=display.slice(0,2).toUpperCase();
+
   return <div className="profile-page">
-    <section className="profile-hero"><div className="avatar profile-avatar">YS</div><div className="profile-copy"><span className="eyebrow">STUDENT PROFILE</span><h1>Your profile</h1><p>@you · Member since 2026 · {joined.length} communities joined</p></div><button className="ghost-btn" onClick={() => notifyProfile("Profile editing will connect to your account backend next") }><Settings size={16}/> Edit profile</button></section>
-    <div className="profile-stats"><div><strong>{joined.length}</strong><span>Communities</span></div><div><strong>0</strong><span>Posts</span></div><div><strong>0</strong><span>Comments</span></div><div><strong>0</strong><span>Karma</span></div></div>
-    <div className="profile-grid"><div className="right-card"><div className="card-heading"><h3><Users size={17}/> Your communities</h3><button onClick={onExplore}>Explore</button></div>{joined.map(name => { const c=communities.find(x=>x.name===name); return c ? <CommunityRow key={name} c={c} joined toggle={()=>{}}/> : null; })}</div><div className="right-card profile-actions"><h3>Quick actions</h3><button onClick={onCreate}><Plus size={16}/> Create a post</button><button onClick={onExplore}><Compass size={16}/> Discover communities</button><button onClick={() => notifyProfile("Settings surface opened from the profile menu") }><Settings size={16}/> Account settings</button></div></div>
+    <section className="profile-hero"><div className="avatar profile-avatar">{initials}</div><div className="profile-copy"><span className="eyebrow">CAMPUS IDENTITY</span><h1>{display}</h1><p>{profile?.username ? "@"+profile.username+" · " : ""}{course || "Student"}{year ? " · "+year : ""}</p></div><button className="ghost-btn" onClick={()=>setEditing(true)}><Settings size={16}/> Edit profile</button></section>
+    <div className="profile-stats"><div><strong>{joined.length}</strong><span>Communities</span></div><div><strong>{profile?.postCount ?? 0}</strong><span>Posts</span></div><div><strong>{profile?.commentCount ?? 0}</strong><span>Comments</span></div><div><strong>{profile?.karma ?? 0}</strong><span>Karma</span></div></div>
+    <div className="profile-grid"><div className="right-card"><div className="card-heading"><h3><Users size={17}/> Your communities</h3><button onClick={onExplore}>Explore</button></div>{joined.map(name => { const c=communities.find(x=>x.name===name); return c ? <CommunityRow key={name} c={c} joined toggle={()=>{}}/> : null; })}{!joined.length&&<div className="tiny">Join communities to build your feed.</div>}</div><div className="right-card profile-actions"><h3>Quick actions</h3><button onClick={onCreate}><Plus size={16}/> Create a post</button><button onClick={onExplore}><Compass size={16}/> Discover communities</button></div></div>
+    {editing && <div className="modal-backdrop" onMouseDown={()=>setEditing(false)}><div className="info-modal" onMouseDown={e=>e.stopPropagation()}><button className="modal-x" onClick={()=>setEditing(false)}><X size={18}/></button><div className="info-icon"><UserRound size={22}/></div><h2>Edit profile</h2><label>Display name<input value={name} onChange={e=>setName(e.target.value)} /></label><label>Username<input value={username} onChange={e=>setUsername(e.target.value)} placeholder="your_username" /></label><label>Course<input value={course} onChange={e=>setCourse(e.target.value)} placeholder="e.g. ECE" /></label><label>Year<input value={year} onChange={e=>setYear(e.target.value)} placeholder="e.g. 2nd Year" /></label><label>Bio<textarea value={bio} onChange={e=>setBio(e.target.value)} rows="4" /></label><button className="primary-btn wide" onClick={saveProfile}>Save profile</button></div></div>}
   </div>;
 }
 
@@ -313,7 +350,7 @@ function notifyProfile(message) {
   window.dispatchEvent(new CustomEvent("campusreddit:toast", { detail: message }));
 }
 
-function Explore({communities,joined,toggleJoin,onCreate}) { return <><div className="explore-head"><span className="eyebrow"><Compass size={14}/> DISCOVER</span><h1>Find your corner of campus.</h1><p>Communities are the rooms of CampusReddit. Join the ones that feel like home.</p><button className="primary-btn" onClick={onCreate}><Plus size={17}/> Start a conversation</button></div><div className="community-grid">{communities.map(c => <div className="explore-card" key={c.name}><div className="explore-icon" style={{background:c.color+"18"}}>{c.icon}</div><div><h3>r/{c.name}</h3><p>{c.label}</p><small>{c.members} members</small></div><button className={joined.includes(c.name) ? "joined-btn" : "join-btn"} onClick={() => toggleJoin(c.name)}>{joined.includes(c.name) ? "Joined" : "Join"}</button></div>)}</div></>; }
+function Explore({communities,joined,toggleJoin,onCreate}) { return <><div className="explore-head"><span className="eyebrow"><Compass size={14}/> DISCOVER</span><h1>Find your corner of campus.</h1><p>Communities are the rooms of CampusVerse. Join the ones that feel like home.</p><button className="primary-btn" onClick={onCreate}><Plus size={17}/> Start a conversation</button></div><div className="community-grid">{communities.map(c => <div className="explore-card" key={c.name}><div className="explore-icon" style={{background:c.color+"18"}}>{c.icon}</div><div><h3>r/{c.name}</h3><p>{c.label}</p><small>{c.members} members</small></div><button className={joined.includes(c.name) ? "joined-btn" : "join-btn"} onClick={() => toggleJoin(c.name)}>{joined.includes(c.name) ? "Joined" : "Join"}</button></div>)}</div></>; }
 
 function EmptyState({onCreate,title="No posts here yet"}) { return <div className="empty"><div>🛰️</div><h3>{title}</h3><p>Be the person who starts the conversation.</p><button className="primary-btn" onClick={onCreate}><Plus size={17}/> Create a post</button></div>; }
 
@@ -372,6 +409,6 @@ function CommentsModal({post,onClose,onRefresh,session,onLogin}) {
 
 function PostMenu({post,onClose,onShare,onSave,onReport}) { return <div className="modal-backdrop subtle" onMouseDown={onClose}><div className="post-menu-modal" onMouseDown={e=>e.stopPropagation()}><div className="menu-title"><strong>Post options</strong><button onClick={onClose}><X size={18}/></button></div><p>{post.title}</p><button onClick={onSave}><Bookmark size={17}/> {post.saved ? "Remove from saved" : "Save post"}</button><button onClick={onShare}><Send size={17}/> Share post</button><button onClick={onReport} className="danger"><Flag size={17}/> Report post</button></div></div>; }
 
-function InfoModal({type,onClose}) { const data={about:["About CampusReddit","A university-first community for conversations, questions, discoveries and campus life."],rules:["Community rules","Be respectful. No harassment, spam, impersonation, doxxing or harmful content. Keep posts relevant to campus."],privacy:["Privacy","Your future production build can use university verification, row-level security and clear controls for profile and content visibility."],help:["Help center","For the prototype, every major control is interactive. Production support can be connected to moderation, reports, authentication and account recovery."],settings:["Settings","Notification, privacy, appearance and account preferences will live here in the connected version."]}[type] || ["CampusReddit","Welcome."]; return <div className="modal-backdrop" onMouseDown={onClose}><div className="info-modal" onMouseDown={e=>e.stopPropagation()}><button className="modal-x" onClick={onClose}><X size={18}/></button><div className="info-icon"><Info size={22}/></div><h2>{data[0]}</h2><p>{data[1]}</p><div className="info-row"><ShieldCheck size={16}/><span>Designed with student safety and clear community controls in mind.</span></div><button className="primary-btn wide" onClick={onClose}>Close</button></div></div>; }
+function InfoModal({type,onClose}) { const data={about:["About CampusVerse","A university-first community for conversations, questions, discoveries and campus life."],rules:["Community rules","Be respectful. No harassment, spam, impersonation, doxxing or harmful content. Keep posts relevant to campus."],privacy:["Privacy","Profile and content access are protected by database access policies."],help:["Help center","Authentication, reporting and account controls are connected to the campus backend."],settings:["Settings","Manage your account and notification preferences here."]}[type] || ["CampusVerse","Welcome."]; return <div className="modal-backdrop" onMouseDown={onClose}><div className="info-modal" onMouseDown={e=>e.stopPropagation()}><button className="modal-x" onClick={onClose}><X size={18}/></button><div className="info-icon"><Info size={22}/></div><h2>{data[0]}</h2><p>{data[1]}</p><div className="info-row"><ShieldCheck size={16}/><span>Use reporting and community controls to keep discussions useful and respectful.</span></div><button className="primary-btn wide" onClick={onClose}>Close</button></div></div>; }
 
 createRoot(document.getElementById("root")).render(<App />);
