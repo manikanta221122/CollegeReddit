@@ -211,7 +211,7 @@ function App() {
         <div className="top-actions">
           <button className="icon-btn mobile-menu" onClick={() => setMenuOpen(!menuOpen)}><Menu size={21}/></button>
           <button className="icon-btn" onClick={() => { setShowNotifications(!showNotifications); setShowProfile(false); }} aria-label="Notifications"><Bell size={20}/>{!notificationsRead && <span className="notification-dot"/>}</button>
-          <button className={`profile-pill ${showProfile ? "active" : ""}`} onClick={() => { setShowProfile(!showProfile); setShowNotifications(false); }} aria-expanded={showProfile}><span className="avatar me">YS</span><ChevronDown size={15}/></button>
+          <button className={`profile-pill ${showProfile ? "active" : ""}`} onClick={() => { setShowProfile(!showProfile); setShowNotifications(false); }} aria-expanded={showProfile}><span className="avatar me">{(profile?.display_name || session?.user?.email?.split("@")[0] || "CM").slice(0,2).toUpperCase()}</span><ChevronDown size={15}/></button>
         </div>
         {showNotifications && <NotificationPanel notifications={notifications} read={notificationsRead} onRead={async () => { if (session) { await supabase.from("notifications").update({read_at:new Date().toISOString()}).eq("user_id",session.user.id); setNotificationsRead(true); setNotifications(n => n.map(x => ({...x,read:true}))); notify("Notifications marked as read"); } }}/>}
         {showProfile && <ProfileMenu session={session} onNavigate={go} onInfo={setInfoModal} onLogin={() => setShowLogin(true)} onLogout={async () => { await supabase.auth.signOut(); localStorage.removeItem("campusverse_onboarding_done"); setShowProfile(false); notify("Logged out"); }}/>} 
@@ -293,14 +293,21 @@ function WelcomeOverlay({communities,step,setStep,suggested,setSuggested,onLogin
 
 function NavItem({icon,label,active,onClick}) { return <button className={`nav-item ${active ? "active" : ""}`} onClick={onClick}>{React.cloneElement(icon,{size:19})}<span>{label}</span></button>; }
 
-function NotificationPanel({read,onRead}) { return <div className="notification-panel"><div className="panel-head"><strong>Notifications</strong><button onClick={onRead}>{read ? "All read" : "Mark all read"}</button></div><div className="notification"><span className="n-avatar">🔥</span><p><b>bytebender</b> replied to your campus thread.<small>12 min ago</small></p></div><div className="notification"><span className="n-avatar">🏆</span><p><b>KL Clash</b> posted a new tournament update.<small>1h ago</small></p></div><div className="notification"><span className="n-avatar">💬</span><p><b>NightOwl_21</b> mentioned you in campus.<small>2h ago</small></p></div></div>; }
+function NotificationPanel({notifications=[],read,onRead}) {
+  return <div className="notification-panel"><div className="panel-head"><strong>Notifications</strong><button onClick={onRead}>{read ? "All read" : "Mark all read"}</button></div>
+    {notifications.length ? notifications.map(n=><div className="notification" key={n.id}><span className="n-avatar">{n.type==="comment"?"💬":n.type==="vote"?"⬆️":"🔔"}</span><p><b>{n.title || "Campus activity"}</b>{n.body ? " "+n.body : ""}<small>{n.created_at ? new Date(n.created_at).toLocaleString() : ""}</small></p></div>) : <div className="tiny">No notifications yet.</div>}
+  </div>;
+}
 
 function ProfileMenu({session,onNavigate,onInfo,onLogin,onLogout}) {
+  const label=session?.user?.email?.split("@")[0] || "Campus member";
+  const initials=label.slice(0,2).toUpperCase();
   return <div className="profile-menu">
-    <div className="profile-summary"><span className="avatar me big">YS</span><div><strong>{session ? "Your account" : "Your profile"}</strong><small>{session?.user?.email || "@you · student account"}</small></div></div>
+    <div className="profile-summary"><span className="avatar me big">{initials}</span><div><strong>{session ? "Your account" : "Your profile"}</strong><small>{session?.user?.email || "Sign in to join campus conversations"}</small></div></div>
     <button onClick={() => onNavigate("Profile")}><UserRound size={16}/> Profile</button>
     <button onClick={() => onNavigate("Saved")}><Bookmark size={16}/> Saved posts</button>
-    <button onClick={() => onInfo("settings")}><Settings size={16}/> Settings</button>\n    {session && <button onClick={() => onNavigate("__ADMIN__")}><ShieldCheck size={16}/> Control Center</button>
+    <button onClick={() => onInfo("settings")}><Settings size={16}/> Settings</button>
+    {session && <button onClick={() => onNavigate("__ADMIN__")}><ShieldCheck size={16}/> Control Center</button>}
     <div className="menu-divider"/>
     {session ? <button onClick={onLogout}><LogOut size={16}/> Log out</button> : <button onClick={onLogin}><LogOut size={16}/> Log in / create account</button>}
   </div>;
