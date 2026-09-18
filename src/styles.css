@@ -144,3 +144,90 @@ button { font-family: inherit; }
 
 /* Authentication modal must appear above onboarding */
 .auth-modal-backdrop { z-index: 300 !important; }
+
+
+/* Edit profile modal */
+.profile-edit-modal {
+  width: min(560px, 100%);
+  max-height: min(720px, calc(100vh - 40px));
+  overflow-y: auto;
+  position: relative;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 26px;
+  box-shadow: 0 30px 100px rgba(0,0,0,.24);
+  animation: popIn .18s ease;
+}
+.profile-edit-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 38px;
+  margin-bottom: 20px;
+}
+.profile-edit-head .info-icon { margin: 0; flex: none; }
+.profile-edit-head h2 { margin: 0; font-size: 21px; letter-spacing: -.5px; }
+.profile-edit-head p { margin: 3px 0 0; color: #999; font-size: 10px; }
+.profile-edit-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px;
+}
+.profile-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.profile-edit-field.full { grid-column: 1 / -1; }
+.profile-edit-field > span {
+  color: #555;
+  font-size: 10px;
+  font-weight: 800;
+}
+.profile-edit-field input,
+.profile-edit-field textarea {
+  width: 100%;
+  border: 1px solid #dedee2;
+  background: #fafafa;
+  border-radius: 11px;
+  padding: 11px 12px;
+  outline: 0;
+  color: #222;
+  font-size: 11px;
+  transition: .16s ease;
+}
+.profile-edit-field textarea {
+  resize: vertical;
+  min-height: 100px;
+  line-height: 1.5;
+}
+.profile-edit-field input::placeholder,
+.profile-edit-field textarea::placeholder { color: #b3b3b7; }
+.profile-edit-field input:focus,
+.profile-edit-field textarea:focus {
+  background: #fff;
+  border-color: #fb923c;
+  box-shadow: 0 0 0 4px rgba(249,115,22,.09);
+}
+.profile-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid #eee;
+  margin-top: 20px;
+  padding-top: 15px;
+}
+.profile-edit-actions .ghost-btn { background: #f7f7f8; }
+.profile-edit-hint {
+  margin-top: 5px;
+  color: #aaa;
+  font-size: 8px;
+  line-height: 1.4;
+}
+@media(max-width:600px) {
+  .profile-edit-modal { padding: 20px; border-radius: 18px; }
+  .profile-edit-form { grid-template-columns: 1fr; }
+  .profile-edit-field.full { grid-column: auto; }
+  .profile-edit-actions { position: sticky; bottom: -20px; background: #fff; padding-bottom: 4px; }
+}
