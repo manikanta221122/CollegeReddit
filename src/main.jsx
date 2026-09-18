@@ -136,7 +136,8 @@ function App() {
     window.__campusToast = window.setTimeout(() => setToast(""), 1900);
   };
 
-  const go = (destination) => {\n    if (destination === "__ADMIN__") { setAdminMode(true); setShowProfile(false); return; }
+  const go = (destination) => {
+    if (destination === "__ADMIN__") { setAdminMode(true); setShowProfile(false); return; }
     setActive(destination);
     setQuery("");
     setMenuOpen(false);
@@ -212,7 +213,7 @@ function App() {
           <button className="icon-btn" onClick={() => { setShowNotifications(!showNotifications); setShowProfile(false); }} aria-label="Notifications"><Bell size={20}/>{!notificationsRead && <span className="notification-dot"/>}</button>
           <button className={`profile-pill ${showProfile ? "active" : ""}`} onClick={() => { setShowProfile(!showProfile); setShowNotifications(false); }} aria-expanded={showProfile}><span className="avatar me">YS</span><ChevronDown size={15}/></button>
         </div>
-        {showNotifications && <NotificationPanel notifications={notifications} read={notificationsRead} onRead={async () => { if (session) { await supabase.from("notifications").update({read:true}).eq("user_id",session.user.id); setNotificationsRead(true); setNotifications(n => n.map(x => ({...x,read:true}))); notify("Notifications marked as read"); } }}/>}
+        {showNotifications && <NotificationPanel notifications={notifications} read={notificationsRead} onRead={async () => { if (session) { await supabase.from("notifications").update({read_at:new Date().toISOString()}).eq("user_id",session.user.id); setNotificationsRead(true); setNotifications(n => n.map(x => ({...x,read:true}))); notify("Notifications marked as read"); } }}/>}
         {showProfile && <ProfileMenu session={session} onNavigate={go} onInfo={setInfoModal} onLogin={() => setShowLogin(true)} onLogout={async () => { await supabase.auth.signOut(); localStorage.removeItem("campusverse_onboarding_done"); setShowProfile(false); notify("Logged out"); }}/>} 
       </header>
 
