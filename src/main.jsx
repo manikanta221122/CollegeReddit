@@ -7,6 +7,7 @@ import {
   LogOut, UserRound, CircleHelp, Flag, Check, Lock, SlidersHorizontal
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
+import { loadCampusData, toggleCommunityMembership, createCampusPost, togglePostSave, voteOnPost } from "./campusApi";
 import "./styles.css";
 
 const communities = [
@@ -35,7 +36,9 @@ const comments = [
 ];
 
 function App() {
-  const [posts, setPosts] = useState(initialPosts);
+  const [posts, setPosts] = useState([]);
+  const [communitiesData, setCommunitiesData] = useState([]);
+  const [loadingData, setLoadingData] = useState(true);
   const [session, setSession] = useState(null);
   const [active, setActive] = useState("Home");
   const [sort, setSort] = useState("Hot");
@@ -64,11 +67,30 @@ function App() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (mounted) setSession(nextSession);
     });
-    return () => {
-      mounted = false;
-      listener.subscription.unsubscribe();
-    };
+    return () => { mounted = false; listener.subscription.unsubscribe(); };
   }, []);
+
+  const mountedData = useRef(true);
+  const refreshData = async (userId = session?.user?.id) => {
+    setLoadingData(true);
+    try {
+      const data = await loadCampusData(userId);
+      if (!mountedData.current) return;
+      setCommunitiesData(data.communities);
+      setPosts(data.posts);
+      if (userId) {
+        const { data: memberships } = await supabase.from("community_members").select("community_id").eq("user_id", userId);
+        const names = (memberships || []).map(m => data.communities.find(c => c.id === m.community_id)?.name).filter(Boolean);
+        setJoined(Array.from(new Set(["campus", ...names])));
+      }
+    } catch (e) {
+      if (mountedData.current) notify(e.message || "Could not load campus data");
+    } finally {
+      if (mountedData.current) setLoadingData(false);
+    }
+  };
+  useEffect(() => () => { mountedData.current = false; }, []);
+  useEffect(() => { refreshData(session?.user?.id); }, [session?.user?.id]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -108,18 +130,29 @@ function App() {
     setShowProfile(false);
   };
 
-  const vote = (id, direction) => {
-    setPosts(p => p.map(post => post.id === id ? { ...post, votes: post.votes + (direction === "up" ? 1 : -1) } : post));
+  const vote = async (id, direction) => {
+    const post = posts.find(p => p.id === id);
+    if (!post) return;
+    if (!session) { setShowLogin(true); return; }
+    try { await voteOnPost(id, session.user.id, post.myVote || 0, direction); await refreshData(session.user.id); }
+    catch (e) { notify(e.message || "Vote failed"); }
   };
 
-  const toggleSave = (id) => {
-    setPosts(p => p.map(post => post.id === id ? { ...post, saved: !post.saved } : post));
-    notify("Saved status updated");
+  const toggleSave = async (id) => {
+    const post = posts.find(p => p.id === id);
+    if (!post) return;
+    if (!session) { setShowLogin(true); return; }
+    try { await togglePostSave(id, session.user.id, post.saved); await refreshData(session.user.id); notify(post.saved ? "Removed from saved" : "Saved"); }
+    catch (e) { notify(e.message || "Save failed"); }
   };
 
-  const toggleJoin = (name) => {
-    setJoined(j => j.includes(name) ? j.filter(x => x !== name) : [...j, name]);
-    notify(joined.includes(name) ? `Left r/${name}` : `Joined r/${name}`);
+  const toggleJoin = async (name) => {
+    if (!session) { setShowLogin(true); return; }
+    const c = communitiesData.find(x => x.name === name);
+    if (!c) return;
+    const isJoined = joined.includes(name);
+    try { await toggleCommunityMembership(c.id, session.user.id, isJoined); await refreshData(session.user.id); notify(isJoined ? "Left r/" + name : "Joined r/" + name); }
+    catch (e) { notify(e.message || "Could not update membership"); }
   };
 
   const visiblePosts = useMemo(() => {
@@ -137,12 +170,12 @@ function App() {
     return result;
   }, [posts, query, active, sort, joined]);
 
-  const createPost = (data) => {
-    const newPost = { id: Date.now(), community: data.community, title: data.title, body: data.body, author: "you", avatar: "YS", time: "now", votes: 1, comments: 0, saved: false, tags: ["New Post"] };
-    setPosts(p => [newPost, ...p]);
-    setShowComposer(false);
-    setActive("Home");
-    notify("Post published");
+  const createPost = async (data) => {
+    if (!session) { setShowLogin(true); return; }
+    try {
+      await createCampusPost({ ...data, tags: ["New Post"], userId: session.user.id });
+      setShowComposer(false); setActive("Home"); await refreshData(session.user.id); notify("Post published");
+    } catch (e) { notify(e.message || "Could not publish post"); }
   };
 
   const sharePost = async (post) => {
@@ -188,18 +221,18 @@ function App() {
         </aside>
 
         <main className="main">
-          {active === "Explore" ? <Explore joined={joined} toggleJoin={toggleJoin} onCreate={() => setShowComposer(true)} />
+          {active === "Explore" ? <Explore communities={communitiesData.length ? communitiesData : communities} joined={joined} toggleJoin={toggleJoin} onCreate={() => setShowComposer(true)} />
           : active === "Profile" ? <ProfilePage joined={joined} onExplore={() => go("Explore")} onCreate={() => setShowComposer(true)} />
           : active !== "Home" && active !== "My Feed" && active !== "Saved" && communities.some(c => c.name === active)
-          ? <CommunityPage name={active} joined={joined} toggleJoin={toggleJoin} onCreate={() => setShowComposer(true)} posts={visiblePosts} vote={vote} toggleSave={toggleSave} onComment={setCommentPost} onShare={sharePost} onMore={setPostMenu}/>
+          ? <CommunityPage communities={communitiesData.length ? communitiesData : communities} name={active} joined={joined} toggleJoin={toggleJoin} onCreate={() => setShowComposer(true)} posts={visiblePosts} vote={vote} toggleSave={toggleSave} onComment={setCommentPost} onShare={sharePost} onMore={setPostMenu}/>
           : <>
               {active === "Home" && <HomeHero session={session} onLogin={() => setShowLogin(true)} onCreate={() => setShowComposer(true)} onExplore={() => go("Explore")} />}
-              {active === "Home" && <QuickCommunities joined={joined} toggleJoin={toggleJoin} onExplore={() => go("Explore")} />}
+              {active === "Home" && <QuickCommunities communities={communitiesData.length ? communitiesData : communities} joined={joined} toggleJoin={toggleJoin} onExplore={() => go("Explore")} />}
               <div className="feed-toolbar">
                 <div className="feed-title"><h2>{active === "My Feed" ? "Your feed" : active === "Saved" ? "Saved posts" : "Today's campus"}</h2><span>{visiblePosts.length} conversations</span></div>
                 <div className="sort-tabs">{["Hot", "New", "Top"].map(s => <button key={s} className={sort === s ? "selected" : ""} onClick={() => setSort(s)}>{s === "Hot" && <Flame size={15}/>} {s}</button>)}</div>
               </div>
-              <div className="feed">{visiblePosts.length ? visiblePosts.map(post => <PostCard key={post.id} post={post} vote={vote} toggleSave={toggleSave} onComment={() => setCommentPost(post)} onShare={() => sharePost(post)} onMore={() => setPostMenu(post)}/>) : <EmptyState title={active === "Saved" ? "Nothing saved yet" : active === "My Feed" ? "Your feed is quiet" : "No posts found"} onCreate={() => setShowComposer(true)} />}</div>
+              <div className="feed">{loadingData ? <div className="empty"><div>⏳</div><h3>Loading campus conversations…</h3><p>Connecting to the campus database.</p></div> : visiblePosts.length ? visiblePosts.map(post => <PostCard key={post.id} post={post} vote={vote} toggleSave={toggleSave} onComment={() => setCommentPost(post)} onShare={() => sharePost(post)} onMore={() => setPostMenu(post)}/>) : <EmptyState title={active === "Saved" ? "Nothing saved yet" : active === "My Feed" ? "Your feed is quiet" : "No posts found"} onCreate={() => setShowComposer(true)} />}</div>
             </>}
         </main>
 
@@ -211,7 +244,7 @@ function App() {
         </aside>
       </div>
 
-      {showComposer && <Composer communities={communities} onClose={() => setShowComposer(false)} onCreate={createPost}/>} 
+      {showComposer && <Composer communities={communitiesData.length ? communitiesData : communities} onClose={() => setShowComposer(false)} onCreate={createPost}/>} 
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} onDone={() => {setShowLogin(false); finishOnboarding(); notify("Welcome to CampusReddit")}}/>}
       {commentPost && <CommentsModal post={commentPost} onClose={() => setCommentPost(null)} onAdd={() => notify("Comment composer coming next")}/>} 
       {postMenu && <PostMenu post={postMenu} onClose={() => setPostMenu(null)} onShare={() => {sharePost(postMenu); setPostMenu(null)}} onSave={() => {toggleSave(postMenu.id); setPostMenu(null)}} onReport={() => {setPostMenu(null); notify("Thanks. The post was flagged for review")}}/>}
@@ -226,7 +259,7 @@ function HomeHero({session,onLogin,onCreate,onExplore}) {
   return <section className="hero-card"><div className="hero-glow"/><div className="hero-copy"><span className="eyebrow"><Sparkles size={14}/> THE CAMPUS INTERNET</span><h1>Your campus.<br/><em>Your conversations.</em></h1><p>A community-first place for questions, stories, memes, opportunities and the conversations your official groups don't have.</p><div className="hero-actions"><button className="primary-btn" onClick={onCreate}><Plus size={18}/> Create post</button><button className="ghost-btn" onClick={onExplore}><Compass size={17}/> Explore communities</button></div></div><div className="hero-orbit"><div className="orbit-card oc1">🎮<span>Gaming</span></div><div className="orbit-card oc2">📚<span>Academics</span></div><div className="orbit-card oc3">😂<span>Memes</span></div><div className="orbit-center">C</div></div></section>;
 }
 
-function QuickCommunities({joined,toggleJoin,onExplore}) {
+function QuickCommunities({communities,joined,toggleJoin,onExplore}) {
   return <section className="quick-communities"><div className="section-heading"><div><span className="eyebrow">GET STARTED</span><h2>Find your people</h2></div><button onClick={onExplore}>View all <Compass size={14}/></button></div><div className="quick-grid">{communities.slice(0, 4).map(c => <div className="quick-card" key={c.name}><span className="community-icon" style={{background:c.color+"18"}}>{c.icon}</span><div><strong>r/{c.name}</strong><small>{c.members} members</small></div><button className={joined.includes(c.name) ? "joined-btn" : "join-btn"} onClick={() => toggleJoin(c.name)}>{joined.includes(c.name) ? "Joined" : "Join"}</button></div>)}</div></section>;
 }
 
@@ -262,7 +295,7 @@ function PostCard({post,vote,toggleSave,onComment,onShare,onMore}) {
 
 function CommunityRow({c,joined,toggle}) { return <div className="community-row"><span className="community-icon" style={{background:c.color+"18"}}>{c.icon}</span><div className="grow"><strong>r/{c.name}</strong><small>{c.members} members</small></div><button className={joined ? "joined-btn" : "join-btn"} onClick={toggle}>{joined ? "Joined" : "Join"}</button></div>; }
 
-function CommunityPage({name,joined,toggleJoin,onCreate,posts,vote,toggleSave,onComment,onShare,onMore}) { const c = communities.find(x => x.name === name) || communities[0]; return <><div className="community-banner" style={{"--accent":c.color}}><div className="community-large">{c.icon}</div><div className="community-title"><span>r/{c.name}</span><h1>{c.label}</h1><p>{c.members} members · A place for university students to share, ask and connect.</p></div><button className={joined.includes(name) ? "joined-large" : "primary-btn"} onClick={() => toggleJoin(name)}>{joined.includes(name) ? "Joined" : "Join community"}</button></div><div className="feed-toolbar"><div className="feed-title"><h2>Community posts</h2><span>Fresh from r/{name}</span></div><button className="primary-btn compact" onClick={onCreate}><Plus size={16}/> Post</button></div><div className="feed">{posts.length ? posts.map(p => <PostCard key={p.id} post={p} vote={vote} toggleSave={toggleSave} onComment={() => onComment(p)} onShare={() => onShare(p)} onMore={() => onMore(p)}/>) : <EmptyState onCreate={onCreate}/>}</div></>; }
+function CommunityPage({communities,name,joined,toggleJoin,onCreate,posts,vote,toggleSave,onComment,onShare,onMore}) { const c = communities.find(x => x.name === name) || communities[0]; return <><div className="community-banner" style={{"--accent":c.color}}><div className="community-large">{c.icon}</div><div className="community-title"><span>r/{c.name}</span><h1>{c.label}</h1><p>{c.members} members · A place for university students to share, ask and connect.</p></div><button className={joined.includes(name) ? "joined-large" : "primary-btn"} onClick={() => toggleJoin(name)}>{joined.includes(name) ? "Joined" : "Join community"}</button></div><div className="feed-toolbar"><div className="feed-title"><h2>Community posts</h2><span>Fresh from r/{name}</span></div><button className="primary-btn compact" onClick={onCreate}><Plus size={16}/> Post</button></div><div className="feed">{posts.length ? posts.map(p => <PostCard key={p.id} post={p} vote={vote} toggleSave={toggleSave} onComment={() => onComment(p)} onShare={() => onShare(p)} onMore={() => onMore(p)}/>) : <EmptyState onCreate={onCreate}/>}</div></>; }
 
 function ProfilePage({joined,onExplore,onCreate}) {
   return <div className="profile-page">
@@ -276,7 +309,7 @@ function notifyProfile(message) {
   window.dispatchEvent(new CustomEvent("campusreddit:toast", { detail: message }));
 }
 
-function Explore({joined,toggleJoin,onCreate}) { return <><div className="explore-head"><span className="eyebrow"><Compass size={14}/> DISCOVER</span><h1>Find your corner of campus.</h1><p>Communities are the rooms of CampusReddit. Join the ones that feel like home.</p><button className="primary-btn" onClick={onCreate}><Plus size={17}/> Start a conversation</button></div><div className="community-grid">{communities.map(c => <div className="explore-card" key={c.name}><div className="explore-icon" style={{background:c.color+"18"}}>{c.icon}</div><div><h3>r/{c.name}</h3><p>{c.label}</p><small>{c.members} members</small></div><button className={joined.includes(c.name) ? "joined-btn" : "join-btn"} onClick={() => toggleJoin(c.name)}>{joined.includes(c.name) ? "Joined" : "Join"}</button></div>)}</div></>; }
+function Explore({communities,joined,toggleJoin,onCreate}) { return <><div className="explore-head"><span className="eyebrow"><Compass size={14}/> DISCOVER</span><h1>Find your corner of campus.</h1><p>Communities are the rooms of CampusReddit. Join the ones that feel like home.</p><button className="primary-btn" onClick={onCreate}><Plus size={17}/> Start a conversation</button></div><div className="community-grid">{communities.map(c => <div className="explore-card" key={c.name}><div className="explore-icon" style={{background:c.color+"18"}}>{c.icon}</div><div><h3>r/{c.name}</h3><p>{c.label}</p><small>{c.members} members</small></div><button className={joined.includes(c.name) ? "joined-btn" : "join-btn"} onClick={() => toggleJoin(c.name)}>{joined.includes(c.name) ? "Joined" : "Join"}</button></div>)}</div></>; }
 
 function EmptyState({onCreate,title="No posts here yet"}) { return <div className="empty"><div>🛰️</div><h3>{title}</h3><p>Be the person who starts the conversation.</p><button className="primary-btn" onClick={onCreate}><Plus size={17}/> Create a post</button></div>; }
 
