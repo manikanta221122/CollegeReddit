@@ -177,7 +177,7 @@ function App() {
           : active !== "Home" && active !== "My Feed" && active !== "Saved" && communities.some(c => c.name === active)
           ? <CommunityPage name={active} joined={joined} toggleJoin={toggleJoin} onCreate={() => setShowComposer(true)} posts={visiblePosts} vote={vote} toggleSave={toggleSave} onComment={setCommentPost} onShare={sharePost} onMore={setPostMenu}/>
           : <>
-              {active === "Home" && <HomeHero onCreate={() => setShowComposer(true)} onExplore={() => go("Explore")} />}
+              {active === "Home" && <HomeHero session={session} onLogin={() => setShowLogin(true)} onCreate={() => setShowComposer(true)} onExplore={() => go("Explore")} />}
               {active === "Home" && <QuickCommunities joined={joined} toggleJoin={toggleJoin} onExplore={() => go("Explore")} />}
               <div className="feed-toolbar">
                 <div className="feed-title"><h2>{active === "My Feed" ? "Your feed" : active === "Saved" ? "Saved posts" : "Today's campus"}</h2><span>{visiblePosts.length} conversations</span></div>
@@ -206,7 +206,7 @@ function App() {
   );
 }
 
-function HomeHero({onCreate,onExplore}) {
+function HomeHero({session,onLogin,onCreate,onExplore}) {
   return <section className="hero-card"><div className="hero-glow"/><div className="hero-copy"><span className="eyebrow"><Sparkles size={14}/> THE CAMPUS INTERNET</span><h1>Your campus.<br/><em>Your conversations.</em></h1><p>A community-first place for questions, stories, memes, opportunities and the conversations your official groups don't have.</p><div className="hero-actions"><button className="primary-btn" onClick={onCreate}><Plus size={18}/> Create post</button><button className="ghost-btn" onClick={onExplore}><Compass size={17}/> Explore communities</button></div></div><div className="hero-orbit"><div className="orbit-card oc1">🎮<span>Gaming</span></div><div className="orbit-card oc2">📚<span>Academics</span></div><div className="orbit-card oc3">😂<span>Memes</span></div><div className="orbit-center">C</div></div></section>;
 }
 
