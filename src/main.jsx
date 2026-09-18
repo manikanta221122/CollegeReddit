@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  ArrowDown, ArrowUp, Bell, Bookmark, ChevronDown, Compass, Flame,
+  ArrowDown, ArrowUp, Bell, Bookmark, ChevronDown, Compass, Flame, CalendarDays, ShoppingBag,
   Home, Image, Info, Menu, MessageCircle, MoreHorizontal, Plus,
   Search, Send, Settings, ShieldCheck, Sparkles, Trophy, Users, X,
   LogOut, UserRound, CircleHelp, Flag, Check, Lock, SlidersHorizontal
@@ -9,6 +9,7 @@ import {
 import { supabase } from "./supabaseClient";
 import { loadCampusData, toggleCommunityMembership, createCampusPost, togglePostSave, voteOnPost, addCampusComment, reportCampusPost } from "./campusApi";
 import AdminPortal from "./admin.jsx";
+import CampusHub from "./CampusHub.jsx";
 import "./styles.css";
 
 function initialsFromName(value) {
@@ -78,7 +79,7 @@ function App() {
         const { data: profileBase } = await supabase.from("profiles").select("id,username,display_name,bio,avatar_url,course,year,campus,created_at").eq("id", userId).maybeSingle();
         setProfile(profileBase ? {...profileBase, postCount: profileRow?.post_count || 0, commentCount: profileRow?.comment_count || 0, karma: profileRow?.karma || 0} : null);
         setNotifications(noteRows || []);
-        setNotificationsRead((noteRows || []).every(n => n.read));
+        setNotificationsRead((noteRows || []).every(n => !!n.read_at));
       } else {
         setJoined([]);
         setProfile(null);
@@ -233,6 +234,9 @@ function App() {
             <NavItem icon={<Sparkles/>} label="My Feed" active={active === "My Feed"} onClick={() => go("My Feed")}/>
             <NavItem icon={<Compass/>} label="Explore" active={active === "Explore"} onClick={() => go("Explore")}/>
             <NavItem icon={<Bookmark/>} label="Saved" active={active === "Saved"} onClick={() => go("Saved")}/>
+            <NavItem icon={<CalendarDays/>} label="Events" active={active === "Events"} onClick={() => go("Events")}/>
+            <NavItem icon={<Users/>} label="Clubs" active={active === "Clubs"} onClick={() => go("Clubs")}/>
+            <NavItem icon={<ShoppingBag/>} label="Marketplace" active={active === "Marketplace"} onClick={() => go("Marketplace")}/>
           </nav>
           <div className="sidebar-title">COMMUNITIES <button onClick={() => go("Explore")} aria-label="Explore communities"><Plus size={15}/></button></div>
           <div className="community-list">
@@ -243,7 +247,7 @@ function App() {
         </aside>
 
         <main className="main">
-          {active === "Explore" ? <Explore communities={communitiesData} joined={joined} toggleJoin={toggleJoin} onCreate={() => setShowComposer(true)} />
+          {["Events","Clubs","Marketplace"].includes(active) ? <CampusHub section={active} session={session} onLogin={() => setShowLogin(true)} notify={notify}/>\n          : active === "Explore" ? <Explore communities={communitiesData} joined={joined} toggleJoin={toggleJoin} onCreate={() => setShowComposer(true)} />
           : active === "Profile" ? <ProfilePage profile={profile} communities={communitiesData} joined={joined} onExplore={() => go("Explore")} onCreate={() => setShowComposer(true)} session={session} onSaved={async () => { await refreshData(session?.user?.id); }}/>
           : active !== "Home" && active !== "My Feed" && active !== "Saved" && communitiesData.some(c => c.name === active)
           ? <CommunityPage communities={communitiesData} name={active} joined={joined} toggleJoin={toggleJoin} onCreate={() => setShowComposer(true)} posts={visiblePosts} vote={vote} toggleSave={toggleSave} onComment={setCommentPost} onShare={sharePost} onMore={setPostMenu}/>
@@ -254,7 +258,7 @@ function App() {
                 <div className="feed-title"><h2>{active === "My Feed" ? "Your feed" : active === "Saved" ? "Saved posts" : "Today's campus"}</h2><span>{visiblePosts.length} conversations</span></div>
                 <div className="sort-tabs">{["Hot", "New", "Top"].map(s => <button key={s} className={sort === s ? "selected" : ""} onClick={() => setSort(s)}>{s === "Hot" && <Flame size={15}/>} {s}</button>)}</div>
               </div>
-              <div className="feed">{loadingData ? <div className="empty"><div>⏳</div><h3>Loading campus conversations…</h3><p>Connecting to the campus database.</p></div> : visiblePosts.length ? visiblePosts.map(post => <PostCard key={post.id} post={post} vote={vote} toggleSave={toggleSave} onComment={() => setCommentPost(post)} onShare={() => sharePost(post)} onMore={() => setPostMenu(post)}/>) : <EmptyState title={active === "Saved" ? "Nothing saved yet" : active === "My Feed" ? "Your feed is quiet" : "No posts found"} onCreate={() => setShowComposer(true)} />}</div>
+              <div className="feed">{loadingData ? <div className="empty"><div>⏳</div><h3>Loading campus conversations…</h3><p>Connecting to the campus database.</p></div> : visiblePosts.length ? <FeedWithSuggestions posts={visiblePosts} vote={vote} toggleSave={toggleSave} onComment={setCommentPost} onShare={sharePost} onMore={setPostMenu} joined={joined} communities={communitiesData} onJoin={toggleJoin} /> : <EmptyState title={active === "Saved" ? "Nothing saved yet" : active === "My Feed" ? "Your feed is quiet" : "No posts found"} onCreate={() => setShowComposer(true)} />}</div>
             </>}
         </main>
 
@@ -321,6 +325,15 @@ function ProfileMenu({session,profile,onNavigate,onInfo,onLogin,onLogout}) {
   </div>;
 }
 
+function FeedWithSuggestions({posts,vote,toggleSave,onComment,onShare,onMore,joined,communities,onJoin}) {
+  const [people,setPeople]=useState([]);
+  useEffect(()=>{const ids=[...new Set(posts.map(p=>p.author).filter(Boolean))]; if(!ids.length){setPeople([]);return;} supabase.from("profiles").select("id,username,display_name,avatar_url").limit(30).then(({data})=>setPeople(data||[]));},[posts]);
+  const suggestions=communities.filter(c=>!joined.includes(c.name)).slice(0,3);
+  return <>{posts.map((post,i)=><React.Fragment key={post.id}><PostCard post={post} vote={vote} toggleSave={toggleSave} onComment={()=>onComment(post)} onShare={()=>onShare(post)} onMore={()=>onMore(post)}/>{(i===4 || (i===9 && suggestions.length)) && <SuggestionStrip communities={suggestions} people={people} onJoin={onJoin}/>}</React.Fragment>)}</>;
+}
+function SuggestionStrip({communities,people,onJoin}) {
+  return <section className="suggestion-strip"><div className="suggestion-strip-head"><div><span className="eyebrow">FOR YOU</span><h3>Suggested for you</h3><p>Discover communities and students you may want to follow.</p></div><Sparkles size={20}/></div><div className="suggestion-cards">{communities.map(c=><div className="suggestion-item" key={c.name}><span className="community-icon" style={{background:c.color+"18"}}>{c.icon}</span><div><strong>r/{c.name}</strong><small>{c.label}</small></div><button className="join-btn" onClick={()=>onJoin(c.name)}>Join</button></div>)}</div></section>;
+}
 function PostCard({post,vote,toggleSave,onComment,onShare,onMore}) {
   const community = { name: post.community, label: post.communityLabel, icon: post.communityIcon || "🏫", color: post.communityColor || "#f97316" };
   return <article className="post-card"><div className="vote-column"><button onClick={() => vote(post.id,"up")} aria-label="Upvote"><ArrowUp size={20}/></button><strong>{post.votes.toLocaleString()}</strong><button onClick={() => vote(post.id,"down")} aria-label="Downvote"><ArrowDown size={20}/></button></div><div className="post-main"><div className="post-meta"><span className="community-icon small" style={{background:community.color+"18"}}>{community.icon}</span><b>r/{post.community}</b><span>•</span><span>Posted by u/{post.author}</span><span>•</span><span>{post.time}</span>{post.hot && <span className="hot-pill"><Flame size={11}/> Hot</span>}</div><h3>{post.title}</h3><p className="post-body">{post.body}</p><div className="tags">{post.tags.map(t => <span key={t}>#{t}</span>)}</div><div className="post-actions"><button onClick={onComment}><MessageCircle size={17}/> {post.comments} Comments</button><button onClick={() => toggleSave(post.id)} className={post.saved ? "saved" : ""}><Bookmark size={17} fill={post.saved ? "currentColor" : "none"}/> {post.saved ? "Saved" : "Save"}</button><button onClick={onShare}><Send size={16}/> Share</button><button className="more" onClick={onMore} aria-label="More options"><MoreHorizontal size={18}/></button></div></div></article>;
