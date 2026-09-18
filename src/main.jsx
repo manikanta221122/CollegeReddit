@@ -11,7 +11,15 @@ import { loadCampusData, toggleCommunityMembership, createCampusPost, togglePost
 import AdminPortal from "./admin.jsx";
 import "./styles.css";
 
-function initialsFromName(value) {\n  const clean = String(value || "").trim().replace(/\\s+/g, " ");\n  if (!clean) return "CM";\n  const parts = clean.split(" ").filter(Boolean);\n  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();\n  return clean.slice(0, 2).toUpperCase();\n}\n\nfunction App() {
+function initialsFromName(value) {
+  const clean = String(value || "").trim().replace(/\\s+/g, " ");
+  if (!clean) return "CM";
+  const parts = clean.split(" ").filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return clean.slice(0, 2).toUpperCase();
+}
+
+function App() {
   const [posts, setPosts] = useState([]);
   const [communitiesData, setCommunitiesData] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -299,7 +307,7 @@ function NotificationPanel({notifications=[],read,onRead}) {
   </div>;
 }
 
-function ProfileMenu({session,onNavigate,onInfo,onLogin,onLogout}) {
+function ProfileMenu({session,profile,onNavigate,onInfo,onLogin,onLogout}) {
   const label=session?.user?.email?.split("@")[0] || "Campus member";
   const initials=label.slice(0,2).toUpperCase();
   return <div className="profile-menu">
@@ -328,7 +336,9 @@ function ProfilePage({profile,communities,joined,onExplore,onCreate,session,onSa
   const [username,setUsername]=useState(profile?.username || "");
   const [bio,setBio]=useState(profile?.bio || "");
   const [course,setCourse]=useState(profile?.course || "");
-  const [year,setYear]=useState(profile?.year || "");\n  const [avatarUrl,setAvatarUrl]=useState(profile?.avatar_url || "");\n  const [avatarBusy,setAvatarBusy]=useState(false);
+  const [year,setYear]=useState(profile?.year || "");
+  const [avatarUrl,setAvatarUrl]=useState(profile?.avatar_url || "");
+  const [avatarBusy,setAvatarBusy]=useState(false);
 
   useEffect(()=>{setName(profile?.display_name||"");setUsername(profile?.username||"");setBio(profile?.bio||"");setCourse(profile?.course||"");setYear(profile?.year||"");setAvatarUrl(profile?.avatar_url||"");},[profile]);
 
@@ -398,7 +408,9 @@ function Explore({communities,joined,toggleJoin,onCreate}) { return <><div class
 
 function EmptyState({onCreate,title="No posts here yet"}) { return <div className="empty"><div>🛰️</div><h3>{title}</h3><p>Be the person who starts the conversation.</p><button className="primary-btn" onClick={onCreate}><Plus size={17}/> Create a post</button></div>; }
 
-function Composer({communities,onClose,onCreate}) { const [community,setCommunity]=useState("campus"); const [title,setTitle]=useState(""); const [body,setBody]=useState(""); const [imageAdded,setImageAdded]=useState(false); const [spoiler,setSpoiler]=useState(false); const valid=title.trim().length>3; return <div className="modal-backdrop" onMouseDown={onClose}><div className="composer" onMouseDown={e=>e.stopPropagation()}><div className="composer-head"><div><span className="eyebrow">CREATE</span><h2>Start a conversation</h2></div><button onClick={onClose}><X/></button></div><label>Community<select value={community} onChange={e=>setCommunity(e.target.value)}>{communities.map(c=><option value={c.name} key={c.name}>r/{c.name}</option>)}</select></label><label>Title<input autoFocus value={title} onChange={e=>setTitle(e.target.value)} placeholder="What's on your mind?" maxLength={140}/><small>{title.length}/140</small></label><label>Body<textarea value={body} onChange={e=>setBody(e.target.value)} placeholder="Add context, a question, a story, or just say hello..." rows="6"/></label><div className="composer-tools"><button className={imageAdded?"tool-active":""} onClick={()=>setImageAdded(!imageAdded)}><Image size={18}/> {imageAdded?"Image added":"Image"}</button><button className={spoiler?"tool-active":""} onClick={()=>setSpoiler(!spoiler)}><ShieldCheck size={18}/> {spoiler?"Spoiler on":"Spoiler"}</button><button onClick={()=>setBody(b=>b+"\n\n#poll ")}><MoreHorizontal size={18}/> Add tag</button><span>{spoiler ? "Spoiler enabled" : "Markdown supported"}</span></div><div className="composer-foot"><button className="ghost-btn" onClick={onClose}>Cancel</button><button className="primary-btn" disabled={!valid} onClick={()=>onCreate({community,title,body})}>Publish post</button></div></div></div>; }
+function Composer({communities,onClose,onCreate}) { const [community,setCommunity]=useState("campus"); const [title,setTitle]=useState(""); const [body,setBody]=useState(""); const [imageAdded,setImageAdded]=useState(false); const [spoiler,setSpoiler]=useState(false); const valid=title.trim().length>3; return <div className="modal-backdrop" onMouseDown={onClose}><div className="composer" onMouseDown={e=>e.stopPropagation()}><div className="composer-head"><div><span className="eyebrow">CREATE</span><h2>Start a conversation</h2></div><button onClick={onClose}><X/></button></div><label>Community<select value={community} onChange={e=>setCommunity(e.target.value)}>{communities.map(c=><option value={c.name} key={c.name}>r/{c.name}</option>)}</select></label><label>Title<input autoFocus value={title} onChange={e=>setTitle(e.target.value)} placeholder="What's on your mind?" maxLength={140}/><small>{title.length}/140</small></label><label>Body<textarea value={body} onChange={e=>setBody(e.target.value)} placeholder="Add context, a question, a story, or just say hello..." rows="6"/></label><div className="composer-tools"><button className={imageAdded?"tool-active":""} onClick={()=>setImageAdded(!imageAdded)}><Image size={18}/> {imageAdded?"Image added":"Image"}</button><button className={spoiler?"tool-active":""} onClick={()=>setSpoiler(!spoiler)}><ShieldCheck size={18}/> {spoiler?"Spoiler on":"Spoiler"}</button><button onClick={()=>setBody(b=>b+"
+
+#poll ")}><MoreHorizontal size={18}/> Add tag</button><span>{spoiler ? "Spoiler enabled" : "Markdown supported"}</span></div><div className="composer-foot"><button className="ghost-btn" onClick={onClose}>Cancel</button><button className="primary-btn" disabled={!valid} onClick={()=>onCreate({community,title,body})}>Publish post</button></div></div></div>; }
 
 function LoginModal({onClose,onDone}) {
   const [email,setEmail]=useState("");
