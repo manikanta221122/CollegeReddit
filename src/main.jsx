@@ -332,7 +332,7 @@ function LoginModal({onClose,onDone}) {
     setBusy(true); setError("");
     const result = mode === "login"
       ? await supabase.auth.signInWithPassword({ email: email.trim(), password })
-      : await supabase.auth.signUp({ email: email.trim(), password });
+      : await supabase.auth.signUp({ email: email.trim(), password, options: { data: { full_name: email.trim().split("@")[0] } } });
     setBusy(false);
     if (result.error) { setError(result.error.message); return; }
     if (mode === "signup" && !result.data.session) {
@@ -342,7 +342,7 @@ function LoginModal({onClose,onDone}) {
     onDone();
   };
 
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="login-modal" onMouseDown={e=>e.stopPropagation()}>
+  return <div className="modal-backdrop auth-modal-backdrop" onMouseDown={onClose}><div className="login-modal" onMouseDown={e=>e.stopPropagation()}>
     <button className="modal-x" onClick={onClose}><X size={18}/></button><div className="login-mark">C</div>
     <h2>{mode === "login" ? "Welcome back" : "Create your account"}</h2>
     <p>{mode === "login" ? "Continue your campus conversations." : "Use your email to get started."}</p>
