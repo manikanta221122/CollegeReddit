@@ -17,7 +17,7 @@ function App() {
   const [loadingData, setLoadingData] = useState(true);
   const [session, setSession] = useState(null);
   const [active, setActive] = useState("Home");
-  const [adminMode, setAdminMode] = useState(false);
+  const [adminMode, setAdminMode] = useState(() => window.location.pathname.replace(/\/+$/, "") === "/admin");
   const [sort, setSort] = useState("Hot");
   const [query, setQuery] = useState("");
   const [joined, setJoined] = useState(["campus", "academics"]);
@@ -137,7 +137,7 @@ function App() {
   };
 
   const go = (destination) => {
-    if (destination === "__ADMIN__") { setAdminMode(true); setShowProfile(false); return; }
+    if (destination === "__ADMIN__") { window.history.pushState({}, "", "/admin"); setAdminMode(true); setShowProfile(false); return; }
     setActive(destination);
     setQuery("");
     setMenuOpen(false);
@@ -198,7 +198,7 @@ function App() {
     catch { notify("Share link ready"); }
   };
 
-  return adminMode ? <AdminPortal session={session} onExit={() => setAdminMode(false)} notify={notify} /> : (
+  return adminMode ? <AdminPortal session={session} onExit={() => { window.history.pushState({}, "", "/"); setAdminMode(false); }} notify={notify} /> : (
     <div className="app-shell">
       <header className="topbar">
         <button className="brand" onClick={() => go("Home")} aria-label="Go home">
