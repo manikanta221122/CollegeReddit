@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import { loadCampusData, toggleCommunityMembership, createCampusPost, togglePostSave, voteOnPost, addCampusComment, reportCampusPost } from "./campusApi";
+import AdminPortal from "./admin.jsx";
 import "./styles.css";
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
   const [loadingData, setLoadingData] = useState(true);
   const [session, setSession] = useState(null);
   const [active, setActive] = useState("Home");
+  const [adminMode, setAdminMode] = useState(false);
   const [sort, setSort] = useState("Hot");
   const [query, setQuery] = useState("");
   const [joined, setJoined] = useState(["campus", "academics"]);
@@ -61,7 +63,7 @@ function App() {
         const [{ data: memberships }, { data: profileRow }, { data: noteRows }] = await Promise.all([
           supabase.from("community_members").select("community_id").eq("user_id", userId),
           supabase.from("profile_activity_counts").select("id,post_count,comment_count,karma").eq("id", userId).maybeSingle(),
-          supabase.from("notifications").select("id,type,title,body,read,created_at").eq("user_id", userId).order("created_at", { ascending:false }).limit(20)
+          supabase.from("notifications").select("id,type,message,read_at,created_at,actor_id,post_id").eq("user_id", userId).order("created_at", { ascending:false }).limit(20)
         ]);
         const names = (memberships || []).map(x => data.communities.find(c => c.id === x.community_id)?.name).filter(Boolean);
         setJoined(Array.from(new Set(names)));
@@ -134,7 +136,7 @@ function App() {
     window.__campusToast = window.setTimeout(() => setToast(""), 1900);
   };
 
-  const go = (destination) => {
+  const go = (destination) => {\n    if (destination === "__ADMIN__") { setAdminMode(true); setShowProfile(false); return; }
     setActive(destination);
     setQuery("");
     setMenuOpen(false);
@@ -196,7 +198,7 @@ function App() {
   };
 
   return (
-    <div className="app-shell">
+    {adminMode ? <AdminPortal session={session} onExit={() => setAdminMode(false)} notify={notify} /> : <div className="app-shell">
       <header className="topbar">
         <button className="brand" onClick={() => go("Home")} aria-label="Go home">
           <div className="brand-mark">C</div>
@@ -297,7 +299,7 @@ function ProfileMenu({session,onNavigate,onInfo,onLogin,onLogout}) {
     <div className="profile-summary"><span className="avatar me big">YS</span><div><strong>{session ? "Your account" : "Your profile"}</strong><small>{session?.user?.email || "@you · student account"}</small></div></div>
     <button onClick={() => onNavigate("Profile")}><UserRound size={16}/> Profile</button>
     <button onClick={() => onNavigate("Saved")}><Bookmark size={16}/> Saved posts</button>
-    <button onClick={() => onInfo("settings")}><Settings size={16}/> Settings</button>
+    <button onClick={() => onInfo("settings")}><Settings size={16}/> Settings</button>\n    {session && <button onClick={() => onNavigate("__ADMIN__")}><ShieldCheck size={16}/> Control Center</button>
     <div className="menu-divider"/>
     {session ? <button onClick={onLogout}><LogOut size={16}/> Log out</button> : <button onClick={onLogin}><LogOut size={16}/> Log in / create account</button>}
   </div>;
