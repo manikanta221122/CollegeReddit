@@ -211,7 +211,7 @@ function initialsFromName(value) {\n  const clean = String(value || "").trim().r
         <div className="top-actions">
           <button className="icon-btn mobile-menu" onClick={() => setMenuOpen(!menuOpen)}><Menu size={21}/></button>
           <button className="icon-btn" onClick={() => { setShowNotifications(!showNotifications); setShowProfile(false); }} aria-label="Notifications"><Bell size={20}/>{!notificationsRead && <span className="notification-dot"/>}</button>
-          <button className={`profile-pill ${showProfile ? "active" : ""}`} onClick={() => { setShowProfile(!showProfile); setShowNotifications(false); }} aria-expanded={showProfile}><span className="avatar me">{(profile?.display_name || session?.user?.email?.split("@")[0] || "CM").slice(0,2).toUpperCase()}</span><ChevronDown size={15}/></button>
+          <button className={`profile-pill ${showProfile ? "active" : ""}`} onClick={() => { setShowProfile(!showProfile); setShowNotifications(false); }} aria-expanded={showProfile}><span className="avatar me">{profile?.avatar_url ? <img src={profile.avatar_url} alt="" /> : initialsFromName(profile?.display_name || session?.user?.user_metadata?.full_name || session?.user?.email?.split("@")[0] || "CM")}</span><ChevronDown size={15}/></button>
         </div>
         {showNotifications && <NotificationPanel notifications={notifications} read={notificationsRead} onRead={async () => { if (session) { await supabase.from("notifications").update({read_at:new Date().toISOString()}).eq("user_id",session.user.id); setNotificationsRead(true); setNotifications(n => n.map(x => ({...x,read:true}))); notify("Notifications marked as read"); } }}/>}
         {showProfile && <ProfileMenu session={session} profile={profile} onNavigate={go} onInfo={setInfoModal} onLogin={() => setShowLogin(true)} onLogout={async () => { await supabase.auth.signOut(); localStorage.removeItem("campusverse_onboarding_done"); setShowProfile(false); notify("Logged out"); }}/>} 
@@ -303,7 +303,7 @@ function ProfileMenu({session,onNavigate,onInfo,onLogin,onLogout}) {
   const label=session?.user?.email?.split("@")[0] || "Campus member";
   const initials=label.slice(0,2).toUpperCase();
   return <div className="profile-menu">
-    <div className="profile-summary"><span className="avatar me big">{initials}</span><div><strong>{session ? "Your account" : "Your profile"}</strong><small>{session?.user?.email || "Sign in to join campus conversations"}</small></div></div>
+    <div className="profile-summary"><span className="avatar me big">{profile?.avatar_url ? <img src={profile.avatar_url} alt="" /> : initials}</span><div><strong>{session ? "Your account" : "Your profile"}</strong><small>{session?.user?.email || "Sign in to join campus conversations"}</small></div></div>
     <button onClick={() => onNavigate("Profile")}><UserRound size={16}/> Profile</button>
     <button onClick={() => onNavigate("Saved")}><Bookmark size={16}/> Saved posts</button>
     <button onClick={() => onInfo("settings")}><Settings size={16}/> Settings</button>
@@ -328,9 +328,42 @@ function ProfilePage({profile,communities,joined,onExplore,onCreate,session,onSa
   const [username,setUsername]=useState(profile?.username || "");
   const [bio,setBio]=useState(profile?.bio || "");
   const [course,setCourse]=useState(profile?.course || "");
-  const [year,setYear]=useState(profile?.year || "");
+  const [year,setYear]=useState(profile?.year || "");\n  const [avatarUrl,setAvatarUrl]=useState(profile?.avatar_url || "");\n  const [avatarBusy,setAvatarBusy]=useState(false);
 
-  useEffect(()=>{setName(profile?.display_name||"");setUsername(profile?.username||"");setBio(profile?.bio||"");setCourse(profile?.course||"");setYear(profile?.year||"");},[profile]);
+  useEffect(()=>{setName(profile?.display_name||"");setUsername(profile?.username||"");setBio(profile?.bio||"");setCourse(profile?.course||"");setYear(profile?.year||"");setAvatarUrl(profile?.avatar_url||"");},[profile]);
+
+  const uploadAvatar=async(file)=>{
+    if(!session||!file)return;
+    if(!["image/jpeg","image/png","image/webp","image/gif"].includes(file.type)){notifyProfile("Use JPG, PNG, WEBP or GIF.");return;}
+    if(file.size>5*1024*1024){notifyProfile("Profile image must be 5 MB or smaller.");return;}
+    setAvatarBusy(true);
+    try{
+      const ext=(file.name.split(".").pop()||"jpg").toLowerCase();
+      const path=session.user.id+"/avatar."+ext;
+      const {error:uploadError}=await supabase.storage.from("avatars").upload(path,file,{upsert:true,contentType:file.type,cacheControl:"3600"});
+      if(uploadError)throw uploadError;
+      const {data}=supabase.storage.from("avatars").getPublicUrl(path);
+      const url=data.publicUrl+"?v="+Date.now();
+      const {error:updateError}=await supabase.from("profiles").update({avatar_url:url,updated_at:new Date().toISOString()}).eq("id",session.user.id);
+      if(updateError)throw updateError;
+      setAvatarUrl(url);notifyProfile("Profile image updated");window.location.reload();
+    }catch(e){notifyProfile(e.message||"Could not upload profile image");}
+    finally{setAvatarBusy(false);}
+  };
+
+  const removeAvatar=async()=>{
+    if(!session||!avatarUrl)return;
+    setAvatarBusy(true);
+    try{
+      const base=avatarUrl.split("?")[0];
+      const oldPath=base.split("/storage/v1/object/public/avatars/")[1];
+      if(oldPath)await supabase.storage.from("avatars").remove([oldPath]);
+      const {error}=await supabase.from("profiles").update({avatar_url:null,updated_at:new Date().toISOString()}).eq("id",session.user.id);
+      if(error)throw error;
+      setAvatarUrl("");notifyProfile("Profile image removed");window.location.reload();
+    }catch(e){notifyProfile(e.message||"Could not remove profile image");}
+    finally{setAvatarBusy(false);}
+  };
 
   const saveProfile=async()=>{
     if(!session)return;
@@ -347,13 +380,13 @@ function ProfilePage({profile,communities,joined,onExplore,onCreate,session,onSa
   };
 
   const display=profile?.display_name || session?.user?.email?.split("@")[0] || "Campus member";
-  const initials=display.slice(0,2).toUpperCase();
+  const initials=initialsFromName(display);
 
   return <div className="profile-page">
     <section className="profile-hero"><div className="avatar profile-avatar">{initials}</div><div className="profile-copy"><span className="eyebrow">CAMPUS IDENTITY</span><h1>{display}</h1><p>{profile?.username ? "@"+profile.username+" · " : ""}{course || "Student"}{year ? " · "+year : ""}</p></div><button className="ghost-btn" onClick={()=>setEditing(true)}><Settings size={16}/> Edit profile</button></section>
     <div className="profile-stats"><div><strong>{joined.length}</strong><span>Communities</span></div><div><strong>{profile?.postCount ?? 0}</strong><span>Posts</span></div><div><strong>{profile?.commentCount ?? 0}</strong><span>Comments</span></div><div><strong>{profile?.karma ?? 0}</strong><span>Karma</span></div></div>
     <div className="profile-grid"><div className="right-card"><div className="card-heading"><h3><Users size={17}/> Your communities</h3><button onClick={onExplore}>Explore</button></div>{joined.map(name => { const c=communities.find(x=>x.name===name); return c ? <CommunityRow key={name} c={c} joined toggle={()=>{}}/> : null; })}{!joined.length&&<div className="tiny">Join communities to build your feed.</div>}</div><div className="right-card profile-actions"><h3>Quick actions</h3><button onClick={onCreate}><Plus size={16}/> Create a post</button><button onClick={onExplore}><Compass size={16}/> Discover communities</button></div></div>
-    {editing && <div className="modal-backdrop" onMouseDown={()=>setEditing(false)}><div className="profile-edit-modal" onMouseDown={e=>e.stopPropagation()}><button className="modal-x" onClick={()=>setEditing(false)} aria-label="Close edit profile"><X size={18}/></button><div className="profile-edit-head"><div className="info-icon"><UserRound size={22}/></div><div><h2>Edit profile</h2><p>Keep your campus identity up to date.</p></div></div><div className="profile-edit-form"><label className="profile-edit-field"><span>Display name</span><input value={name} onChange={e=>setName(e.target.value)} placeholder="Your display name" maxLength="60" /></label><label className="profile-edit-field"><span>Username</span><input value={username} onChange={e=>setUsername(e.target.value.replace(/\\s/g,"").toLowerCase())} placeholder="your_username" maxLength="30" /><small className="profile-edit-hint">Letters, numbers and underscores work best.</small></label><label className="profile-edit-field"><span>Course</span><input value={course} onChange={e=>setCourse(e.target.value)} placeholder="e.g. ECE" maxLength="50" /></label><label className="profile-edit-field"><span>Year</span><input value={year} onChange={e=>setYear(e.target.value)} placeholder="e.g. 2nd Year" maxLength="30" /></label><label className="profile-edit-field full"><span>Bio</span><textarea value={bio} onChange={e=>setBio(e.target.value)} rows="4" placeholder="Tell your campus community a little about you..." maxLength="300" /></label></div><div className="profile-edit-actions"><button className="ghost-btn" onClick={()=>setEditing(false)}>Cancel</button><button className="primary-btn" onClick={saveProfile}>Save profile</button></div></div></div>}
+    {editing && <div className="modal-backdrop" onMouseDown={()=>setEditing(false)}><div className="profile-edit-modal" onMouseDown={e=>e.stopPropagation()}><button className="modal-x" onClick={()=>setEditing(false)} aria-label="Close edit profile"><X size={18}/></button><div className="profile-edit-head"><div className="info-icon"><UserRound size={22}/></div><div><h2>Edit profile</h2><p>Keep your campus identity up to date.</p></div></div><div className="profile-edit-form"><div className="profile-avatar-editor"><div className="avatar profile-avatar edit-avatar">{avatarUrl ? <img src={avatarUrl} alt="Profile preview" /> : initials}</div><div><strong>Profile photo</strong><p>Use a clear photo. JPG, PNG, WEBP or GIF, up to 5 MB.</p><div className="avatar-actions"><label className="ghost-btn upload-avatar-btn">{avatarBusy ? "Uploading…" : "Choose image"}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" disabled={avatarBusy} onChange={e=>{const f=e.target.files?.[0];if(f)uploadAvatar(f);e.target.value="";}} /></label>{avatarUrl&&<button className="ghost-btn" disabled={avatarBusy} onClick={removeAvatar}>Remove</button>}</div></div></div><label className="profile-edit-field"><span>Display name</span><input value={name} onChange={e=>setName(e.target.value)} placeholder="Your display name" maxLength="60" /></label><label className="profile-edit-field"><span>Username</span><input value={username} onChange={e=>setUsername(e.target.value.replace(/\\s/g,"").toLowerCase())} placeholder="your_username" maxLength="30" /><small className="profile-edit-hint">Letters, numbers and underscores work best.</small></label><label className="profile-edit-field"><span>Course</span><input value={course} onChange={e=>setCourse(e.target.value)} placeholder="e.g. ECE" maxLength="50" /></label><label className="profile-edit-field"><span>Year</span><input value={year} onChange={e=>setYear(e.target.value)} placeholder="e.g. 2nd Year" maxLength="30" /></label><label className="profile-edit-field full"><span>Bio</span><textarea value={bio} onChange={e=>setBio(e.target.value)} rows="4" placeholder="Tell your campus community a little about you..." maxLength="300" /></label></div><div className="profile-edit-actions"><button className="ghost-btn" onClick={()=>setEditing(false)}>Cancel</button><button className="primary-btn" onClick={saveProfile}>Save profile</button></div></div></div>}
   </div>;
 }
 
