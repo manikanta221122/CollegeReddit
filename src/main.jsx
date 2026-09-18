@@ -75,6 +75,8 @@ function App() {
   }, [communitiesData]);
   const searchRef = useRef(null);
 
+  useEffect(() => { trackCampusView(session?.user?.id); }, [session?.user?.id]);
+
   useEffect(() => {
     let mounted = true;
     supabase.auth.getSession().then(({ data }) => {
