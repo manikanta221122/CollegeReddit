@@ -22,6 +22,22 @@ function initialsFromName(value) {
   return clean.slice(0, 2).toUpperCase();
 }
 
+function trackCampusView(userId) {
+  try {
+    const key = "campusverse_view_session";
+    let sessionId = sessionStorage.getItem(key);
+    if (!sessionId) {
+      sessionId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now();
+      sessionStorage.setItem(key, sessionId);
+    }
+    const path = window.location.pathname || "/";
+    const trackedKey = "campusverse_view_tracked:" + path;
+    if (sessionStorage.getItem(trackedKey)) return;
+    sessionStorage.setItem(trackedKey, "1");
+    supabase.from("page_views").insert({ user_id: userId || null, session_id: sessionId, path }).then(() => {});
+  } catch {}
+}
+
 function App() {
   const [posts, setPosts] = useState([]);
   const [communitiesData, setCommunitiesData] = useState([]);
