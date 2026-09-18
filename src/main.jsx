@@ -7,7 +7,7 @@ import {
   LogOut, UserRound, CircleHelp, Flag, Check, Lock, SlidersHorizontal
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
-import { loadCampusData, toggleCommunityMembership, createCampusPost, togglePostSave, voteOnPost } from "./campusApi";
+import { loadCampusData, toggleCommunityMembership, createCampusPost, togglePostSave, voteOnPost, addCampusComment, reportCampusPost } from "./campusApi";
 import "./styles.css";
 
 const communities = [
@@ -246,8 +246,12 @@ function App() {
 
       {showComposer && <Composer communities={communitiesData.length ? communitiesData : communities} onClose={() => setShowComposer(false)} onCreate={createPost}/>} 
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} onDone={() => {setShowLogin(false); finishOnboarding(); notify("Welcome to CampusReddit")}}/>}
-      {commentPost && <CommentsModal post={commentPost} onClose={() => setCommentPost(null)} onAdd={() => notify("Comment composer coming next")}/>} 
-      {postMenu && <PostMenu post={postMenu} onClose={() => setPostMenu(null)} onShare={() => {sharePost(postMenu); setPostMenu(null)}} onSave={() => {toggleSave(postMenu.id); setPostMenu(null)}} onReport={() => {setPostMenu(null); notify("Thanks. The post was flagged for review")}}/>}
+      {commentPost && <CommentsModal post={commentPost} session={session} onClose={() => setCommentPost(null)} onRefresh={() => refreshData(session?.user?.id)} onLogin={() => setShowLogin(true)}/>} 
+      {postMenu && <PostMenu post={postMenu} onClose={() => setPostMenu(null)} onShare={() => {sharePost(postMenu); setPostMenu(null)}} onSave={() => {toggleSave(postMenu.id); setPostMenu(null)}} onReport={async () => {
+        if (!session) { setPostMenu(null); setShowLogin(true); return; }
+        try { await reportCampusPost({postId:postMenu.id,userId:session.user.id,reason:"other"}); setPostMenu(null); notify("Thanks. The post was reported for review"); }
+        catch (e) { notify(e.message || "Could not report post"); }
+      }}/>} 
       {infoModal && <InfoModal type={infoModal} onClose={() => setInfoModal(null)}/>} 
       {onboarding && <WelcomeOverlay step={onboardingStep} setStep={setOnboardingStep} suggested={suggested} setSuggested={setSuggested} onLogin={() => setShowLogin(true)} onFinish={finishOnboarding} onSkip={() => finishOnboarding([])} />}
       {toast && <div className="toast"><Check size={16}/>{toast}</div>}
@@ -350,7 +354,21 @@ function LoginModal({onClose,onDone}) {
     <button className="ghost-btn" style={{marginTop:8}} onClick={onClose}>Maybe later</button>
   </div></div>;
 }
-function CommentsModal({post,onClose,onAdd}) { return <div className="modal-backdrop" onMouseDown={onClose}><div className="comments-modal" onMouseDown={e=>e.stopPropagation()}><div className="composer-head"><div><span className="eyebrow">DISCUSSION</span><h2>{post.comments} comments</h2></div><button onClick={onClose}><X/></button></div><div className="comment-post"><strong>{post.title}</strong><p>{post.body}</p></div><div className="comments-list">{comments.map(c=><div className="comment" key={c.author}><span className="avatar">{c.avatar}</span><div><b>u/{c.author}</b><small>{c.time}</small><p>{c.text}</p></div></div>)}</div><button className="primary-btn wide" onClick={onAdd}><MessageCircle size={16}/> Join the discussion</button></div></div>; }
+function CommentsModal({post,onClose,onRefresh,session,onLogin}) {
+  const [body,setBody]=useState("");
+  const [items,setItems]=useState([]);
+  const [busy,setBusy]=useState(false);
+  useEffect(()=>{ supabase.from("comments").select("id,body,created_at,author_id").eq("post_id",post.id).order("created_at",{ascending:true}).then(async ({data,error})=>{
+    if(error)return;
+    const ids=[...(new Set((data||[]).map(x=>x.author_id).filter(Boolean)))];
+    let prof=[];
+    if(ids.length){const r=await supabase.from("profiles").select("id,username,display_name").in("id",ids);prof=r.data||[];}
+    const pm=new Map(prof.map(p=>[p.id,p]));
+    setItems((data||[]).map(c=>({author:pm.get(c.author_id)?.username||pm.get(c.author_id)?.display_name||"Campus member",avatar:(pm.get(c.author_id)?.display_name||"CM").slice(0,2).toUpperCase(),text:c.body,time:""})));
+  });},[post.id]);
+  const submit=async()=>{if(!body.trim())return;if(!session){onLogin();return;}setBusy(true);try{await addCampusComment({postId:post.id,userId:session.user.id,body});setBody("");await onRefresh();const r=await supabase.from("comments").select("id,body,created_at,author_id").eq("post_id",post.id).order("created_at",{ascending:true});const ids=[...(new Set((r.data||[]).map(x=>x.author_id).filter(Boolean)))];let prof=[];if(ids.length){const pr=await supabase.from("profiles").select("id,username,display_name").in("id",ids);prof=pr.data||[];}const pm=new Map(prof.map(p=>[p.id,p]));setItems((r.data||[]).map(c=>({author:pm.get(c.author_id)?.username||pm.get(c.author_id)?.display_name||"Campus member",avatar:(pm.get(c.author_id)?.display_name||"CM").slice(0,2).toUpperCase(),text:c.body,time:""})));}catch(e){notifyProfile(e.message||"Could not comment");}finally{setBusy(false);}};
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="comments-modal" onMouseDown={e=>e.stopPropagation()}><div className="composer-head"><div><span className="eyebrow">DISCUSSION</span><h2>{items.length} comments</h2></div><button onClick={onClose}><X/></button></div><div className="comment-post"><strong>{post.title}</strong><p>{post.body}</p></div><div className="comments-list">{items.length?items.map((c,i)=><div className="comment" key={i}><span className="avatar">{c.avatar}</span><div><b>u/{c.author}</b><small>{c.time}</small><p>{c.text}</p></div></div>):<div className="tiny">No comments yet. Start the discussion.</div>}</div><div style={{display:"flex",gap:8,marginTop:14}}><input value={body} onChange={e=>setBody(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();submit();}}} placeholder={session?"Add a comment…":"Log in to comment"} style={{flex:1}}/><button className="primary-btn" disabled={busy||!body.trim()} onClick={submit}>{busy?"…":"Comment"}</button></div></div></div>;
+}
 
 function PostMenu({post,onClose,onShare,onSave,onReport}) { return <div className="modal-backdrop subtle" onMouseDown={onClose}><div className="post-menu-modal" onMouseDown={e=>e.stopPropagation()}><div className="menu-title"><strong>Post options</strong><button onClick={onClose}><X size={18}/></button></div><p>{post.title}</p><button onClick={onSave}><Bookmark size={17}/> {post.saved ? "Remove from saved" : "Save post"}</button><button onClick={onShare}><Send size={17}/> Share post</button><button onClick={onReport} className="danger"><Flag size={17}/> Report post</button></div></div>; }
 
