@@ -48,7 +48,15 @@ function App() {
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [suggested, setSuggested] = useState([]);
   const [following, setFollowing] = useState(new Set());
+  const [showCommunityCreator, setShowCommunityCreator] = useState(false);
   useEffect(() => { if (!suggested.length && communitiesData.length) setSuggested(communitiesData.slice(0,3).map(c=>c.name)); }, [communitiesData]);
+  useEffect(() => {
+    const slug = new URLSearchParams(window.location.search).get("community");
+    if (slug && communitiesData.length) {
+      const found = communitiesData.find(c => c.slug === slug);
+      if (found) setActive(found.name);
+    }
+  }, [communitiesData]);
   const searchRef = useRef(null);
 
   useEffect(() => {
@@ -187,6 +195,34 @@ function App() {
     } catch(e) { notify(e.message || "Could not update follow"); }
   };
 
+  const createCommunity = async (data) => {
+    if (!session?.user?.id) { setShowLogin(true); return; }
+    try {
+      const slug = data.slug || data.name.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
+      if (!slug) throw new Error("Choose a valid community name.");
+      const { data: created, error } = await supabase.from("communities").insert({
+        creator_id: session.user.id,
+        name: slug,
+        slug,
+        label: data.label.trim(),
+        description: data.description.trim(),
+        category: data.category,
+        interests: data.interests.split(",").map(x=>x.trim()).filter(Boolean).slice(0,12),
+        rules: data.rules.trim(),
+        icon: data.icon || "👥",
+        color: data.color || "#6366f1"
+      }).select("*").single();
+      if (error) throw error;
+      await supabase.from("community_members").insert({community_id: created.id,user_id:session.user.id});
+      await refreshData(session.user.id);
+      setShowCommunityCreator(false);
+      setActive(created.name);
+      const link = window.location.origin + "/?community=" + encodeURIComponent(created.slug);
+      try { await navigator.clipboard.writeText(link); notify("Community created. Share link copied!"); }
+      catch { notify("Community created. Your share link is ready"); }
+    } catch(e) { notify(e.message || "Could not create community"); }
+  };
+
   const toggleJoin = async (name) => {
     if (!session) { setShowLogin(true); return; }
     const c = communitiesData.find(x => x.name === name);
@@ -267,7 +303,7 @@ function App() {
             <NavItem icon={<Users/>} label="Clubs" active={active === "Clubs"} onClick={() => go("Clubs")}/>
             <NavItem icon={<ShoppingBag/>} label="Marketplace" active={active === "Marketplace"} onClick={() => go("Marketplace")}/>
           </nav>
-          <div className="sidebar-title">COMMUNITIES <button onClick={() => go("Explore")} aria-label="Explore communities"><Plus size={15}/></button></div>
+          <div className="sidebar-title">COMMUNITIES <div><button onClick={() => setShowCommunityCreator(true)} aria-label="Create community" title="Create community"><Plus size={15}/></button><button onClick={() => go("Explore")} aria-label="Explore communities" title="Explore"><Compass size={13}/></button></div></div>
           <div className="community-list">
             {communitiesData.slice(0, 6).map(c => <button className={`community-nav ${active === c.name ? "active" : ""}`} key={c.name} onClick={() => go(c.name)}><span className="community-icon" style={{background: c.color + "18"}}>{c.icon}</span><span>r/{c.name}</span></button>)}
           </div>
@@ -300,6 +336,7 @@ function App() {
       </div>
 
       {showComposer && <Composer communities={communitiesData} onClose={() => setShowComposer(false)} onCreate={createPost}/>} 
+      {showCommunityCreator && <CommunityCreator onClose={() => setShowCommunityCreator(false)} onCreate={createCommunity}/>} 
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} onDone={() => {setShowLogin(false); finishOnboarding(); notify("Welcome to CampusVerse")}}/>}
       {commentPost && <CommentsModal post={commentPost} session={session} onClose={() => setCommentPost(null)} onRefresh={() => refreshData(session?.user?.id)} onLogin={() => setShowLogin(true)}/>} 
       {postMenu && <PostMenu post={postMenu} onClose={() => setPostMenu(null)} onShare={() => {sharePost(postMenu); setPostMenu(null)}} onSave={() => {toggleSave(postMenu.id); setPostMenu(null)}} onReport={async () => {
@@ -456,7 +493,23 @@ function notifyProfile(message) {
   window.dispatchEvent(new CustomEvent("campusverse:toast", { detail: message }));
 }
 
-function Explore({communities,joined,toggleJoin,onCreate}) { return <><div className="explore-head"><span className="eyebrow"><Compass size={14}/> DISCOVER</span><h1>Find your corner of campus.</h1><p>Communities are the rooms of CampusVerse. Join the ones that feel like home.</p><button className="primary-btn" onClick={onCreate}><Plus size={17}/> Start a conversation</button></div><div className="community-grid">{communities.map(c => <div className="explore-card" key={c.name}><div className="explore-icon" style={{background:c.color+"18"}}>{c.icon}</div><div><h3>r/{c.name}</h3><p>{c.label}</p><small>{c.members} members</small></div><button className={joined.includes(c.name) ? "joined-btn" : "join-btn"} onClick={() => toggleJoin(c.name)}>{joined.includes(c.name) ? "Joined" : "Join"}</button></div>)}</div></>; }
+function Explore({communities,joined,toggleJoin,onCreate,onCreateCommunity}) {
+  const categories=["All",...Array.from(new Set(communities.map(c=>c.category||"General")))];
+  const [category,setCategory]=useState("All");
+  const visible=category==="All"?communities:communities.filter(c=>(c.category||"General")==category);
+  return <><div className="explore-head"><span className="eyebrow"><Compass size={14}/> DISCOVER</span><h1>Find your corner of campus.</h1><p>Communities are organized by interest so students can find the right people faster.</p><div className="explore-actions"><button className="primary-btn" onClick={onCreateCommunity}><Plus size={17}/> Create community</button><button className="ghost-btn" onClick={onCreate}><Plus size={16}/> Start a conversation</button></div></div>{communities.length>0&&<div className="category-tabs">{categories.map(x=><button key={x} className={category===x?"selected":""} onClick={()=>setCategory(x)}>{x}</button>)}</div>}<div className="community-grid">{visible.map(c => <div className="explore-card" key={c.name}><div className="explore-icon" style={{background:c.color+"18"}}>{c.icon}</div><div><h3>r/{c.name}</h3><p>{c.label}</p><small>{c.category||"General"} · {c.members} members</small>{c.interests?.length>0&&<div className="community-interests">{c.interests.slice(0,3).map(i=><span key={i}>#{i}</span>)}</div>}</div><div className="explore-card-actions"><button className={joined.includes(c.name) ? "joined-btn" : "join-btn"} onClick={() => toggleJoin(c.name)}>{joined.includes(c.name) ? "Following" : "Follow"}</button><button className="share-community-btn" onClick={async()=>{const link=window.location.origin+"/?community="+encodeURIComponent(c.slug||c.name);try{await navigator.clipboard.writeText(link);window.dispatchEvent(new CustomEvent("campusverse:toast",{detail:"Community link copied"}));}catch{window.prompt("Copy this community link",link);}}}>Share</button></div></div>)}{!visible.length&&<EmptyState title="No communities in this category" onCreate={onCreateCommunity}/>}</div></>;
+}
+
+function CommunityCreator({onClose,onCreate}) {
+  const categories=["Academics","Technology","Coding","VLSI & Electronics","Gaming & Esports","Sports & Fitness","Arts & Culture","Clubs & Organizations","Events","Marketplace","Memes & Entertainment","Hostel & Campus Life","Career & Opportunities","General"];
+  const [v,setV]=useState({name:"",label:"",description:"",category:"General",interests:"",rules:"",icon:"👥",color:"#6366f1"});
+  const [busy,setBusy]=useState(false);
+  const set=(k,x)=>setV(a=>({...a,[k]:x}));
+  const slug=v.name.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
+  const valid=v.name.trim().length>=3 && v.label.trim().length>=3 && v.description.trim().length>=10 && slug;
+  const submit=async()=>{if(!valid||busy)return;setBusy(true);try{await onCreate({...v,slug});}finally{setBusy(false);}};
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="community-create-modal" onMouseDown={e=>e.stopPropagation()}><button className="modal-x" onClick={onClose}><X size={18}/></button><div className="community-create-hero"><span className="community-create-icon">{v.icon}</span><div><span className="eyebrow">BUILD YOUR SPACE</span><h2>Create a community</h2><p>Give students a clear reason to join. Your community gets a shareable link automatically.</p></div></div><div className="community-create-grid"><label>Community name<input value={v.name} onChange={e=>set("name",e.target.value)} placeholder="vlsi-club" maxLength={40}/><small>Link: /?community={slug||"your-community"}</small></label><label>Display title<input value={v.label} onChange={e=>set("label",e.target.value)} placeholder="VLSI & Chip Design" maxLength={70}/></label><label>Category<select value={v.category} onChange={e=>set("category",e.target.value)}>{categories.map(c=><option key={c}>{c}</option>)}</select></label><label>Interests / topics<input value={v.interests} onChange={e=>set("interests",e.target.value)} placeholder="VLSI, Verilog, RTL, chips"/><small>Comma-separated. These help personalize suggestions.</small></label><label className="full">Description<textarea value={v.description} onChange={e=>set("description",e.target.value)} placeholder="What is this community about? Who should join?" rows="4" maxLength={500}/></label><label className="full">Community rules<textarea value={v.rules} onChange={e=>set("rules",e.target.value)} placeholder="Be respectful, no spam, keep posts on topic..." rows="3" maxLength={600}/></label><label>Icon<input value={v.icon} onChange={e=>set("icon",e.target.value)} placeholder="👥" maxLength={4}/></label><label>Accent<select value={v.color} onChange={e=>set("color",e.target.value)}><option value="#6366f1">Indigo</option><option value="#f97316">Orange</option><option value="#0ea5e9">Sky</option><option value="#10b981">Emerald</option><option value="#ec4899">Pink</option><option value="#8b5cf6">Violet</option></select></label></div><div className="community-create-footer"><button className="ghost-btn" onClick={onClose}>Cancel</button><button className="primary-btn" disabled={!valid||busy} onClick={submit}>{busy?"Creating…":"Create & get share link"}<Send size={16}/></button></div></div></div>;
+}
 
 function EmptyState({onCreate,title="No posts here yet"}) { return <div className="empty"><div>🛰️</div><h3>{title}</h3><p>Be the person who starts the conversation.</p><button className="primary-btn" onClick={onCreate}><Plus size={17}/> Create a post</button></div>; }
 
