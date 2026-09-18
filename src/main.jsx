@@ -198,8 +198,8 @@ function App() {
     catch { notify("Share link ready"); }
   };
 
-  return (
-    {adminMode ? <AdminPortal session={session} onExit={() => setAdminMode(false)} notify={notify} /> : <div className="app-shell">
+  return adminMode ? <AdminPortal session={session} onExit={() => setAdminMode(false)} notify={notify} /> : (
+    <div className="app-shell">
       <header className="topbar">
         <button className="brand" onClick={() => go("Home")} aria-label="Go home">
           <div className="brand-mark">C</div>
