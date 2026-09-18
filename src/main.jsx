@@ -12,6 +12,8 @@ import AdminPortal from "./admin.jsx";
 import CampusHub from "./CampusHub.jsx";
 import "./styles.css";
 
+if ("serviceWorker" in navigator && import.meta.env.PROD) navigator.serviceWorker.register("/sw.js").catch(() => {});
+
 function initialsFromName(value) {
   const clean = String(value || "").trim().replace(/\s+/g, " ");
   if (!clean) return "CM";
