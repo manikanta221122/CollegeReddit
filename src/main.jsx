@@ -356,7 +356,16 @@ function ProfileMenu({session,profile,onNavigate,onInfo,onLogin,onLogout}) {
 
 function FeedWithSuggestions({posts,vote,toggleSave,onComment,onShare,onMore,joined,communities,onJoin,following,onFollow,session}) {
   const [people,setPeople]=useState([]);
-  useEffect(()=>{const ids=[...new Set(posts.map(p=>p.authorId).filter(Boolean))]; if(!ids.length){setPeople([]);return;} supabase.from("profiles").select("id,username,display_name,avatar_url").limit(30).then(({data})=>setPeople(data||[]));},[posts]);
+  useEffect(()=>{
+    let cancelled=false;
+    const loadSuggestions=async()=>{
+      if(!session?.user?.id){setPeople([]);return;}
+      const {data,error}=await supabase.rpc("suggested_profiles",{limit_count:6});
+      if(!cancelled) setPeople(error ? [] : (data||[]));
+    };
+    loadSuggestions();
+    return ()=>{cancelled=true;};
+  },[session?.user?.id,posts.length]);
   const suggestions=communities.filter(c=>!joined.includes(c.name)).slice(0,3);
   return <>{posts.map((post,i)=><React.Fragment key={post.id}><PostCard post={post} vote={vote} toggleSave={toggleSave} onComment={()=>onComment(post)} onShare={()=>onShare(post)} onMore={()=>onMore(post)}/>{(i===4 || (i===9 && suggestions.length)) && <SuggestionStrip communities={suggestions} people={people} following={following} onJoin={onJoin} onFollow={onFollow} session={session}/>}</React.Fragment>)}</>;
 }
