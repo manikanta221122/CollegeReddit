@@ -11,7 +11,7 @@ import { loadCampusData, toggleCommunityMembership, createCampusPost, togglePost
 import AdminPortal from "./admin.jsx";
 import "./styles.css";
 
-function App() {
+function initialsFromName(value) {\n  const clean = String(value || "").trim().replace(/\\s+/g, " ");\n  if (!clean) return "CM";\n  const parts = clean.split(" ").filter(Boolean);\n  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();\n  return clean.slice(0, 2).toUpperCase();\n}\n\nfunction App() {
   const [posts, setPosts] = useState([]);
   const [communitiesData, setCommunitiesData] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -214,7 +214,7 @@ function App() {
           <button className={`profile-pill ${showProfile ? "active" : ""}`} onClick={() => { setShowProfile(!showProfile); setShowNotifications(false); }} aria-expanded={showProfile}><span className="avatar me">{(profile?.display_name || session?.user?.email?.split("@")[0] || "CM").slice(0,2).toUpperCase()}</span><ChevronDown size={15}/></button>
         </div>
         {showNotifications && <NotificationPanel notifications={notifications} read={notificationsRead} onRead={async () => { if (session) { await supabase.from("notifications").update({read_at:new Date().toISOString()}).eq("user_id",session.user.id); setNotificationsRead(true); setNotifications(n => n.map(x => ({...x,read:true}))); notify("Notifications marked as read"); } }}/>}
-        {showProfile && <ProfileMenu session={session} onNavigate={go} onInfo={setInfoModal} onLogin={() => setShowLogin(true)} onLogout={async () => { await supabase.auth.signOut(); localStorage.removeItem("campusverse_onboarding_done"); setShowProfile(false); notify("Logged out"); }}/>} 
+        {showProfile && <ProfileMenu session={session} profile={profile} onNavigate={go} onInfo={setInfoModal} onLogin={() => setShowLogin(true)} onLogout={async () => { await supabase.auth.signOut(); localStorage.removeItem("campusverse_onboarding_done"); setShowProfile(false); notify("Logged out"); }}/>} 
       </header>
 
       <div className="layout">
